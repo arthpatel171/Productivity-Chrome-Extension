@@ -24,15 +24,16 @@
 
 ### 3. Fixed Clock, Laps, and Alarms
 
-- A clock panel shall remain fixed on the left side of the viewport while the user scrolls through any page. It must not cover the page content and must adapt to smaller screens.
-- The clock shall display the current time and provide start, pause, resume, and reset controls.
+- A clock panel shall remain fixed on the left side of the viewport while the user scrolls through only the selected page where the extension applies. This can be set by clicking the extension icon in chrome and typing the url in which the extension should apply. It defaults to example.com.
+- The stopwatch should provide start, pause, resume, and reset controls.
+- The clock panel should be adjustable in height and width and be movable. There should be an option in the extension icon popup that makes the clock display on all pages or just the page where the extension applies.
 - Users shall be able to record laps. Each lap shall include:
 	- Lap number
 	- Elapsed time
 	- A user-entered description, such as “In this lap, I completed ...”
 - Users shall be able to configure a countdown timer and start, pause, resume, reset, or cancel it.
-- When the countdown reaches zero, an alarm indicator using an alarm-clock emoji shall animate by growing, vibrating, and shrinking before becoming invisible. The alarm state must be visible regardless of which page the user is viewing, and the animation must respect reduced-motion preferences.
-- The alarm shall provide an accessible text/state equivalent to the emoji and must not prevent normal page interaction. Users shall be able to dismiss it.
+- When the countdown reaches zero, an alarm indicator using an alarm-clock emoji shall animate by growing, vibrating, and shrinking before becoming invisible. This alarm animation should be displayed on any page the user is on.
+- The alarm shall provide an accessible text/state equivalent to the emoji and must not prevent normal page interaction. Users shall be able to dismiss it. 
 
 ### 4. Today’s Schedule
 
@@ -42,10 +43,12 @@
 - Each slot shall allow a user to enter, edit, clear, and review a task or note.
 - The schedule shall clearly indicate the current time and distinguish completed, active, and upcoming slots where applicable.
 - The generated schedule shall remain usable on narrow screens without horizontal overflow.
+- The slots are just an axis for the user for reference. The user should be able to enter exact times like `5:47` and it displays a box starting at `5:47` and up to the current time. When the right clicks that box, there should be an option to finish task, which ends the box with another line at the time when end task was clicked. If there are no active tasks, then there should be no active boxes. That place in the axis should be blank without any boxes. The colors of the boxes should be customizable. 
 
 ### 5. Extension Controls and Persistence
 
 - The browser extension popup shall include an enable/disable control for the extension.
+- There should also be a text box where the user clicks there the extension should be applied. The default is example.com
 - The current enabled state shall be visible in the popup and persist across browser restarts.
 - Disabling the extension shall stop its injected UI and behavior without deleting saved notes, formatting, schedules, laps, or preferences. Re-enabling shall restore them.
 - User-created notes, text-box order, collapsed state, dimensions, colors, font settings, schedule entries, and relevant timer preferences shall persist across page refreshes and browser restarts.
