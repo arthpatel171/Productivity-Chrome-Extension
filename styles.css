@@ -1,0 +1,156 @@
+:root {
+  color-scheme: dark;
+  font-family: Georgia, 'Times New Roman', serif;
+  background: #000;
+}
+
+html,
+body {
+  min-width: 100%;
+  min-height: 100%;
+  margin: 0;
+  background: #000 !important;
+}
+
+body {
+  color: #f5f5f5 !important;
+}
+
+#todo-extension-app {
+  box-sizing: border-box;
+  width: min(760px, 100%);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 48px 24px 64px;
+}
+
+.todo-extension-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1px solid #333;
+  margin-bottom: 24px;
+  padding-bottom: 12px;
+}
+
+.todo-extension-header h1 {
+  margin: 0;
+  color: #fff;
+  font-size: 32px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+#todo-extension-status {
+  margin: 0;
+  color: #888;
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+}
+
+#todo-extension-workspace {
+  display: grid;
+  gap: 18px;
+}
+
+.todo-extension-block {
+  overflow: hidden;
+  border: 1px solid #333;
+  border-radius: 6px;
+  background: #111;
+}
+
+.todo-extension-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 42px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #2b2b2b;
+  background: #171717;
+  font-family: Arial, sans-serif;
+}
+
+.todo-extension-block-label {
+  margin-right: auto;
+  color: #777;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.todo-extension-toolbar button,
+#todo-extension-add {
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: #222;
+  color: #eee;
+  cursor: pointer;
+  font-family: Arial, sans-serif;
+}
+
+.todo-extension-toolbar button {
+  min-width: 30px;
+  height: 28px;
+  padding: 0 8px;
+}
+
+.todo-extension-toolbar button:hover,
+#todo-extension-add:hover {
+  border-color: #fff;
+  background: #333;
+}
+
+.todo-extension-delete {
+  color: #ff9b9b !important;
+}
+
+.todo-extension-editor {
+  box-sizing: border-box;
+  min-height: 150px;
+  padding: 20px 24px;
+  outline: none;
+  color: #f5f5f5;
+  font-size: 18px;
+  line-height: 1.6;
+  text-align: center;
+  white-space: pre-wrap;
+}
+
+.todo-extension-editor:empty::before {
+  content: attr(data-placeholder);
+  color: #666;
+  pointer-events: none;
+}
+
+.todo-extension-editor h2 {
+  margin: 0.5em 0;
+  color: #fff;
+  font-size: 32px;
+  line-height: 1.2;
+}
+
+.todo-extension-editor ol,
+.todo-extension-editor ul {
+  width: fit-content;
+  margin: 0.5em auto;
+  padding-left: 28px;
+  text-align: left;
+}
+
+#todo-extension-add {
+  display: block;
+  margin: 24px auto 0;
+  padding: 11px 18px;
+  font-size: 14px;
+}
+
+@media (max-width: 520px) {
+  #todo-extension-app {
+    padding: 28px 12px 48px;
+  }
+
+  .todo-extension-editor {
+    padding: 18px 14px;
+  }
+}

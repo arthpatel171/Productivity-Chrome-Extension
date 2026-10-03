@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Example.com To-Do List",
+  "version": "1.0",
+  "description": "A simple to-do list for example.com that auto-saves",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [
+    "https://example.com/*",
+    "https://www.example.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://example.com/*",
+        "https://www.example.com/*"
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ]
+}
