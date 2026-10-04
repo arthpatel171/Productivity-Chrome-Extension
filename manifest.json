@@ -1,21 +1,25 @@
 {
   "manifest_version": 3,
-  "name": "Example.com To-Do List",
-  "version": "1.0",
-  "description": "A simple to-do list for example.com that auto-saves",
-  "permissions": ["storage", "activeTab"],
+  "name": "Notes, Tasks and Time",
+  "version": "2.0.0",
+  "description": "An offline notes, calendar, and time-management workspace",
+  "permissions": ["storage", "alarms", "tabs", "notifications"],
   "host_permissions": [
-    "https://example.com/*",
-    "https://www.example.com/*"
+    "<all_urls>"
   ],
+  "action": {
+    "default_title": "Open Notes, Tasks and Time",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "app.html",
   "content_scripts": [
     {
-      "matches": [
-        "https://example.com/*",
-        "https://www.example.com/*"
-      ],
+      "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "css": ["styles.css"]
+      "css": ["overlay.css"]
     }
   ]
 }

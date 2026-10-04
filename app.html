@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notes, Tasks and Time</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="todo-app-page">
+  <main id="todo-extension-app">
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Offline workspace</p>
+        <h1>Notes, Tasks and Time</h1>
+      </div>
+      <div class="header-actions">
+        <button id="export-all" type="button">Export backup</button>
+        <label class="file-button">Import backup<input id="import-all" type="file" accept="application/json"></label>
+      </div>
+    </header>
+
+    <nav class="tabs" aria-label="Workspace sections">
+      <button class="tab is-active" type="button" data-view="notes-view">Notes</button>
+      <button class="tab" type="button" data-view="calendar-view">Calendar</button>
+      <button class="tab" type="button" data-view="time-view">Time tools</button>
+      <button class="tab" type="button" data-view="settings-view">Settings</button>
+    </nav>
+
+    <section id="notes-view" class="view is-visible">
+      <div class="section-heading">
+        <div><p class="eyebrow">Write freely</p><h2>Your notes</h2></div>
+        <button id="new-note" class="primary" type="button">+ New note</button>
+      </div>
+      <div class="notes-layout">
+        <aside id="note-list" class="note-list" aria-label="Notes"></aside>
+        <section id="note-editor-panel" class="note-editor-panel" aria-live="polite"></section>
+      </div>
+    </section>
+
+    <section id="calendar-view" class="view">
+      <div class="section-heading">
+        <div><p class="eyebrow">Plan the day</p><h2>Calendar and tasks</h2></div>
+        <button id="new-task" class="primary" type="button">+ New task</button>
+      </div>
+      <form id="task-form" class="task-form" hidden>
+        <div class="form-grid">
+          <label>Title<input name="title" required placeholder="Write a project brief"></label>
+          <label>Color<input name="color" type="color" value="#e07a5f"></label>
+          <label>Description<textarea name="description" rows="2" placeholder="Optional details"></textarea></label>
+          <fieldset><legend>Start</legend><label><input name="startMode" type="radio" value="now" checked> Start now</label><label><input name="startMode" type="radio" value="later"> Schedule later</label></fieldset>
+          <label>Start time<input name="start" type="datetime-local"></label>
+          <label>End time<input name="end" type="datetime-local"></label>
+        </div>
+        <div class="form-actions"><button type="submit" class="primary">Save task</button><button id="cancel-task" type="button">Cancel</button></div>
+      </form>
+      <div id="task-list" class="task-list"></div>
+    </section>
+
+    <section id="time-view" class="view">
+      <div class="section-heading"><div><p class="eyebrow">Keep momentum</p><h2>Time tools</h2></div></div>
+      <div class="tool-grid">
+        <section class="tool-panel"><h3>Stopwatch</h3><output id="stopwatch-display">00:00:00</output><div class="button-row"><button id="stopwatch-toggle" class="primary" type="button">Start</button><button id="stopwatch-reset" type="button">Reset</button><button id="lap-button" type="button">Lap</button></div><div id="lap-list" class="lap-list"></div></section>
+        <section class="tool-panel"><h3>Countdown</h3><label>Minutes<input id="countdown-minutes" type="number" min="1" step="1" value="25"></label><output id="countdown-display">00:00</output><div class="button-row"><button id="countdown-start" class="primary" type="button">Start</button><button id="countdown-reset" type="button">Reset</button></div></section>
+      </div>
+    </section>
+
+    <section id="settings-view" class="view">
+      <div class="section-heading"><div><p class="eyebrow">Make it yours</p><h2>Settings and data</h2></div></div>
+      <div class="settings-grid">
+        <label>Configured page URL<input id="configured-url" type="text" value="example.com" placeholder="example.com"></label>
+        <label class="switch-row"><input id="clock-all-pages" type="checkbox"> Show the clock on all supported pages</label>
+        <label>Default text color<input id="default-text-color" type="color" value="#263238"></label>
+        <label>Highlight color<input id="highlight-color" type="color" value="#123b66"></label>
+      </div>
+      <div class="data-actions"><button id="export-notes" type="button">Export notes</button><label class="file-button">Import notes<input id="import-notes" type="file" accept="application/json"></label><button id="export-tasks" type="button">Export schedules</button><label class="file-button">Import schedules<input id="import-tasks" type="file" accept="application/json"></label><button id="export-settings" type="button">Export settings</button><label class="file-button">Import settings<input id="import-settings" type="file" accept="application/json"></label><button id="export-timers" type="button">Export timers</button><label class="file-button">Import timers<input id="import-timers" type="file" accept="application/json"></label></div>
+      <p id="app-status" class="status" role="status"></p>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
