@@ -1,71 +1,86 @@
 ## Todo Extension Requirements
 
-### 1. Notepads and Text Boxes
+### 1. Product Scope and App Page
 
-- The extension shall support multiple independent notepads. Each notepad shall have a user-editable title displayed in its header, replacing the current `NOTE` label.
-- Each text box shall be independently resizable. Changing the height or width of one text box must not resize neighboring text boxes or all text boxes together.
-- Text boxes shall support collapsing and expanding. A collapsed text box shall show only its title/header; expanding it shall restore its content and dimensions.
-- Text boxes shall be reorderable vertically within a notepad by dragging a dedicated drag handle. The drag handle must be keyboard-accessible where practical, and the new order must remain after the page is refreshed.
+- The extension shall provide a standalone app page bundled inside the extension and opened through a `chrome-extension://` URL. It must work without internet access or external hosting.
+- The extension shall support Chrome and Microsoft Edge on desktop. Mobile browsers are out of scope.
+- The app shall combine three separate areas: Notes, a calendar/schedule manager, and time-management tools.
+- Notes shall be independent from calendar events and tasks.
+
+### 2. Notes and Text Boxes
+
+- Users shall be able to create, rename, switch between, and delete multiple independent notes.
+- Each note shall have a user-editable title displayed in its header, replacing the current `NOTE` label.
+- Each note shall support one or more text boxes. Text boxes shall be independently resizable using dimensions similar to the current implementation; resizing one must not resize neighboring boxes.
+- Text boxes shall support collapsing and expanding. A collapsed text box shall show only its title/header, and expanding it shall restore its content and saved dimensions.
+- Text boxes shall be reorderable vertically within a note using a dedicated drag handle. The order shall persist after refresh and browser restart.
 - The extension shall remove unnecessary whitespace above the page-level `NOTES` heading while preserving readable spacing and alignment.
+- Users shall be able to delete any note, including notes with no content. Deleting a note shall require confirmation or an undo option.
 
-### 2. Text Editing and Appearance
+### 3. WYSIWYG Editor and Appearance
 
-- The editor toolbar shall support, at minimum:
-	- Bold, italic, and underline formatting
-	- Font-family selection
-	- Font-size selection
-	- Text alignment
-	- Undo and redo
-	- Text-color and highlight-color controls
-- The default font for newly created text and text boxes shall be **Handlee**. Existing user formatting must not be overwritten when the default changes.
-- Text color shall be fully customizable rather than limited to presets. Users shall be able to enter a hexadecimal color value and adjust the color using a draggable color-control UI. The selected color must provide a visible preview and apply only to the selected text or the current typing position.
-- The default highlight color shall be dark blue, while still allowing users to customize it through the same color controls.
-- Color input shall validate hexadecimal values and provide a clear invalid-value state without losing the last valid color.
+- The note editor shall use a proven WYSIWYG editing library rather than implementing rich-text editing from scratch. The selected library must work in a bundled Chrome/Edge extension page and support local/offline use.
+- The editor toolbar shall support, at minimum, bold, italic, underline, font family, font size, text alignment, undo, redo, text color, and highlight color.
+- Formatting shall behave like a word processor: when text is selected, it applies to the selection; with no selection, it applies at the cursor/current typing position.
+- The default font for newly created text and text boxes shall be **Handlee**. Existing formatting must not be overwritten when the default changes.
+- Text color shall use a standard color-picker UI with a visible preview and support hexadecimal `#RRGGBB` values. The chosen color shall apply to selected text or the current typing position.
+- The default highlight color shall be dark blue and shall remain customizable through the color-picker UI.
+- Invalid hexadecimal input shall show a clear validation state without replacing the last valid color.
 
-### 3. Fixed Clock, Laps, and Alarms
+### 4. Clock, Stopwatch, and Laps
 
-- A clock panel shall remain fixed on the left side of the viewport while the user scrolls through only the selected page where the extension applies. This can be set by clicking the extension icon in chrome and typing the url in which the extension should apply. It defaults to example.com.
-- The stopwatch should provide start, pause, resume, and reset controls.
-- The clock panel should be adjustable in height and width and be movable. There should be an option in the extension icon popup that makes the clock display on all pages or just the page where the extension applies.
-- Users shall be able to record laps. Each lap shall include:
-	- Lap number
-	- Elapsed time
-	- A user-entered description, such as “In this lap, I completed ...”
-- Users shall be able to configure a countdown timer and start, pause, resume, reset, or cancel it.
-- When the countdown reaches zero, an alarm indicator using an alarm-clock emoji shall animate by growing, vibrating, and shrinking before becoming invisible. This alarm animation should be displayed on any page the user is on.
-- The alarm shall provide an accessible text/state equivalent to the emoji and must not prevent normal page interaction. Users shall be able to dismiss it. 
+- The clock panel shall be fixed on the left side of the configured web page while the user scrolls. The configured page defaults to `example.com` and shall be editable in the extension popup.
+- The clock panel shall be movable and independently adjustable in height and width.
+- The stopwatch shall provide start, pause, resume, reset, and lap controls.
+- Each lap shall include a lap number, elapsed time, and editable user description.
+- A setting shall control whether the clock panel appears only on the configured page or on all supported web pages.
 
-### 4. Today’s Schedule
+### 5. Calendar, Tasks, and Reminders
 
-- The extension shall provide a “Today’s Schedule” view.
-- Users shall enter a starting time using a clear 12-hour or 24-hour format. The chosen format must be consistent throughout the view; `8:30` shall be accepted as a valid example.
-- After a start time is entered, the extension shall generate consecutive 30-minute time slots for the day.
-- Each slot shall allow a user to enter, edit, clear, and review a task or note.
-- The schedule shall clearly indicate the current time and distinguish completed, active, and upcoming slots where applicable.
-- The generated schedule shall remain usable on narrow screens without horizontal overflow.
-- The slots are just an axis for the user for reference. The user should be able to enter exact times like `5:47` and it displays a box starting at `5:47` and up to the current time. When the right clicks that box, there should be an option to finish task, which ends the box with another line at the time when end task was clicked. If there are no active tasks, then there should be no active boxes. That place in the axis should be blank without any boxes. The colors of the boxes should be customizable. 
+- The extension shall provide a calendar/schedule management view with events and tasks that have a title, optional description, start date/time, end date/time, and customizable color.
+- At task creation, users shall choose either **Start now** or **Schedule for later**. Scheduled tasks shall allow the user to define both start and end times.
+- Multiple tasks may overlap and shall remain independently visible and editable.
+- The schedule shall display a 30-minute time-axis for reference, while allowing exact times such as `5:47`.
+- A task started immediately shall display from its actual start time. A task may be ended manually, which records the end time at the moment the user chooses **Finish task**.
+- Active tasks shall display a box spanning from their start time to the current time. Completed tasks shall display from their start time to their recorded end time. Empty periods shall remain blank.
+- Task completion shall be available through a context menu and an equivalent standard keyboard action. It shall also be usable on devices or contexts where right-click is unavailable.
+- Users shall receive a reminder at the start time and another reminder at the end time of scheduled tasks.
+- Reminders shall use an on-page overlay injected into supported web pages. The overlay shall not block normal page interaction and shall include an accessible text/state equivalent.
+- The reminder overlay shall animate using an alarm-clock emoji that grows, vibrates, shrinks, and becomes invisible. Users shall be able to dismiss it.
+- At the scheduled end time, the reminder overlay shall display the task and provide clearly labeled actions to **Mark complete** or **Mark delayed**.
+- **Mark complete** shall change the task to completed and record the actual completion date and time. The completion time shall be displayed in the task details and remain editable later.
+- **Mark delayed** shall keep the task incomplete, record that it was delayed, and provide a way to set a new start time and end time. The user shall be able to dismiss the reminder without choosing an action and make the completion or delay decision later from the task details.
+- Users shall be able to mark a task complete later from the calendar or task details, enter or edit its actual completion date and time, and review the scheduled end time alongside the actual completion time.
+- A task shall not be treated as completed solely because its scheduled end time has passed. Until the user confirms completion, it shall remain active or require an explicit overdue/delayed state.
+- Timer and task timing shall continue in the background when the user navigates away, changes tabs, closes the app page, or reloads a page. The extension shall use persisted timestamps and the browser's extension alarm capabilities rather than relying only on an open page timer.
+- The extension shall remain extension-only and shall not require a desktop companion application or external service. While the browser is running, scheduled reminders shall be delivered at their scheduled times through the on-page overlay. If the browser is completely closed, task and timer data shall remain persisted; when the browser starts again, the extension shall detect missed reminders and present them to the user.
+- The schedule shall identify current, upcoming, active, and completed tasks and remain usable without horizontal scrolling.
 
-### 5. Extension Controls and Persistence
+### 6. Extension Controls and Persistence
 
-- The browser extension popup shall include an enable/disable control for the extension.
-- There should also be a text box where the user clicks there the extension should be applied. The default is example.com
-- The current enabled state shall be visible in the popup and persist across browser restarts.
-- Disabling the extension shall stop its injected UI and behavior without deleting saved notes, formatting, schedules, laps, or preferences. Re-enabling shall restore them.
-- User-created notes, text-box order, collapsed state, dimensions, colors, font settings, schedule entries, and relevant timer preferences shall persist across page refreshes and browser restarts.
-- The extension shall avoid injecting duplicate UI when navigating between pages or refreshing a page.
+- The extension popup shall include an enable/disable control and a field for the configured page URL, defaulting to `example.com`.
+- The current enabled state and configured URL shall persist across browser restarts.
+- Disabling the extension shall stop injected UI and reminders without deleting notes, calendar data, timers, settings, or preferences. Re-enabling shall restore them.
+- The extension shall store data in browser storage with global scope. Notes, schedules, timers, settings, and other user data shall not be separated by web page.
+- The extension shall avoid injecting duplicate UI when navigating, refreshing, or revisiting a page.
+- Users shall be able to export and import data as separate categories: notes, schedules/calendar events, settings, and timers. Users shall also be able to export/import one combined backup containing all categories.
+- Import shall validate the file format, report invalid data clearly, and provide a choice to replace existing data or merge it where supported.
 
-### 6. Usability and Accessibility
+### 7. Usability and Accessibility
 
-- Controls shall have clear labels or accessible names, including drag handles, color inputs, timer controls, collapse controls, and the enable/disable toggle.
-- All core actions shall be usable with keyboard navigation and visible focus states.
-- Text and controls shall remain readable and usable at common desktop and mobile viewport sizes.
-- Animations shall be disabled or reduced when the user has enabled a reduced-motion preference.
-- The extension shall not block, rewrite, or interfere with the host page’s existing controls and content.
+- Controls shall have clear labels or accessible names, including drag handles, color pickers, timer controls, collapse controls, task menus, reminder overlays, and the enable/disable toggle.
+- Core actions shall support standard keyboard shortcuts and keyboard navigation with visible focus states, including formatting, moving between text boxes, collapsing notes, completing tasks, and dismissing reminders.
+- Text and controls shall remain readable and usable at supported desktop viewport sizes.
+- Animations shall be reduced or disabled when the user has enabled a reduced-motion preference.
+- The extension shall inject its own isolated container and must never replace, clear, rewrite, or interfere with the host page's existing DOM content or controls.
 
 ### Definition of Done
 
-- Each requirement above is implemented and manually verified on a representative set of pages.
-- Notes, settings, schedules, laps, ordering, and UI state survive a refresh and browser restart.
-- The extension can be enabled and disabled from its popup without data loss.
-- The layout does not cause unrelated text boxes to resize, introduce excessive top whitespace, or create horizontal scrolling at supported viewport sizes.
-- Timer expiry, drag reordering, color editing, collapse/expand, and schedule generation have focused regression tests or documented manual test steps.
+- The standalone `chrome-extension://` app works offline in Chrome and Edge desktop.
+- Users can create, edit, reorder, resize, collapse, and delete independent notes without affecting calendar data.
+- Notes, settings, schedules, timers, ordering, collapsed state, dimensions, and colors survive refreshes and browser restarts.
+- Background task timing produces start and end reminders while the browser is running, even when the app page is closed or the user is on another supported page. Tasks and timers remain persisted while the browser is closed, and missed reminders are detected after browser restart.
+- Reminder overlays, task overlap, exact start/end times, import/export, and enable/disable behavior are manually verified.
+- End-time reminders provide working complete and delayed actions, preserve incomplete tasks when delayed, and record editable actual completion times.
+- The extension does not replace or interfere with host-page content and does not inject duplicate UI.
+- Focused tests or documented manual test steps cover WYSIWYG formatting, color editing, note operations, task scheduling, overlapping tasks, background timing, reminder dismissal, import/export, and reduced-motion behavior.
