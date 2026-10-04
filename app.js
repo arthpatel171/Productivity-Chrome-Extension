@@ -3,7 +3,7 @@ const DEFAULT_STATE = {
   tasks: [],
   stopwatch: { startedAt: null, elapsed: 0, laps: [] },
   countdown: { endsAt: null, remaining: 0 },
-  settings: { configuredUrl: 'example.com', clockAllPages: false, textColor: '#263238', highlightColor: '#123b66', enabled: true }
+  settings: { textColor: '#d7e3f4', highlightColor: '#123b66', enabled: true }
 };
 
 let state;
@@ -40,7 +40,6 @@ function setStatus(message) {
 function renderAll() {
   renderNotes();
   renderTasks();
-  renderSettings();
   renderLaps();
   updateStopwatch();
   updateCountdown();
@@ -111,10 +110,10 @@ function createBlock(note, block, index) {
   const collapse = button(block.collapsed ? 'Expand' : 'Collapse', 'icon'); collapse.setAttribute('aria-label', collapse.textContent + ' text box');
   collapse.addEventListener('click', () => { block.collapsed = !block.collapsed; saveState(); renderNotes(); });
   const remove = button('Delete', 'danger'); remove.addEventListener('click', () => { note.blocks = note.blocks.filter(item => item.id !== block.id); saveState(); renderNotes(); });
-  toolbar.append(drag, blockTitle, formatButton('B', 'Bold', 'bold'), formatButton('I', 'Italic', 'italic'), formatButton('U', 'Underline', 'underline'), formatButton('H', 'Highlight', 'hiliteColor', state.settings.highlightColor), colorPicker(block), collapse, remove);
-  const editor = document.createElement('div'); editor.className = 'wysiwyg'; editor.contentEditable = 'true'; editor.innerHTML = block.html || ''; editor.style.height = `${block.height || 180}px`; editor.style.fontFamily = 'Handlee, cursive'; editor.dataset.placeholder = 'Start typing...';
+  toolbar.append(drag, blockTitle, formatButton('B', 'Bold', 'bold'), formatButton('I', 'Italic', 'italic'), formatButton('U', 'Underline', 'underline'), formatButton('H', 'Highlight', 'toggleHighlight', state.settings.highlightColor), colorPicker(block), collapse, remove);
+  const editor = document.createElement('div'); editor.className = 'wysiwyg'; editor.contentEditable = 'true'; editor.innerHTML = block.html || ''; editor.style.fontFamily = 'Handlee, cursive'; editor.dataset.placeholder = 'Start typing...';
   editor.addEventListener('focus', () => { activeEditor = editor; });
-  editor.addEventListener('input', () => { block.html = editor.innerHTML; saveState(); });
+  editor.addEventListener('input', () => { applyTypingShortcut(editor); block.html = editor.innerHTML; saveState(); });
   editor.addEventListener('blur', () => { block.html = editor.innerHTML; saveState(); });
   if (block.collapsed) editor.hidden = true;
   article.append(toolbar, editor);
@@ -122,56 +121,59 @@ function createBlock(note, block, index) {
 }
 
 function button(label, className = '') { const item = document.createElement('button'); item.type = 'button'; item.textContent = label; item.className = className; return item; }
-function formatButton(label, title, command, value = null) { const item = button(label, 'format-button'); item.title = title; item.setAttribute('aria-label', title); item.addEventListener('mousedown', event => event.preventDefault()); item.addEventListener('click', () => { if (!activeEditor) return; activeEditor.focus(); document.execCommand(command, false, value); activeEditor.dispatchEvent(new Event('input')); }); return item; }
+function formatButton(label, title, command, value = null) { const item = button(label, 'format-button'); item.title = title; item.setAttribute('aria-label', title); item.addEventListener('mousedown', event => event.preventDefault()); item.addEventListener('click', () => { if (!activeEditor) return; activeEditor.focus(); if (command === 'toggleHighlight') toggleHighlight(value); else document.execCommand(command, false, value); activeEditor.dispatchEvent(new Event('input')); }); return item; }
+function toggleHighlight(color) { const current = document.queryCommandValue('hiliteColor') || document.queryCommandValue('backColor'); const isHighlighted = current && current !== 'transparent' && current !== 'rgba(0, 0, 0, 0)' && current !== 'rgb(255, 255, 255)'; document.execCommand('hiliteColor', false, isHighlighted ? 'transparent' : color); }
 function colorPicker(block) { const input = document.createElement('input'); input.type = 'color'; input.value = block.color || state.settings.textColor; input.title = 'Text color'; input.setAttribute('aria-label', 'Text color'); input.addEventListener('input', () => { block.color = input.value; if (activeEditor) { activeEditor.focus(); document.execCommand('foreColor', false, input.value); activeEditor.dispatchEvent(new Event('input')); } }); return input; }
+function applyTypingShortcut(editor) { const selection = window.getSelection(); if (!selection.rangeCount || !editor.contains(selection.anchorNode)) return; const text = selection.anchorNode.textContent || ''; const beforeCursor = text.slice(0, selection.anchorOffset); if (!/(^|\n)# $/.test(beforeCursor)) return; const range = selection.getRangeAt(0); range.setStart(selection.anchorNode, selection.anchorOffset - 2); range.deleteContents(); selection.removeAllRanges(); selection.addRange(range); document.execCommand('formatBlock', false, 'h1'); }
 
 function renderTasks() {
-  const list = $('#task-list'); list.replaceChildren();
-  if (!state.tasks.length) { list.innerHTML = '<p class="empty-state">No tasks yet. Add one to start planning.</p>'; return; }
-  [...state.tasks].sort((a, b) => new Date(a.start) - new Date(b.start)).forEach(task => {
-    const card = document.createElement('article'); card.className = `task-card task-${task.status || 'scheduled'}`; card.style.setProperty('--task-color', task.color || '#e07a5f');
-    const start = new Date(task.start); const end = new Date(task.end); const actual = task.completedAt ? new Date(task.completedAt) : null;
-    card.innerHTML = `<div class="task-color"></div><div class="task-content"><div class="task-card-heading"><h3>${escapeHtml(task.title)}</h3><span>${task.status || 'scheduled'}</span></div><p>${escapeHtml(task.description || '')}</p><p class="task-time">${formatDate(start)} - ${formatDate(end)}${actual ? ` · completed ${formatDate(actual)}` : ''}</p></div>`;
-    const actions = document.createElement('div'); actions.className = 'task-actions';
-    if (task.status !== 'completed') { const complete = button('Complete', 'small primary'); complete.addEventListener('click', () => completeTask(task)); actions.appendChild(complete); const delay = button('Delay', 'small'); delay.addEventListener('click', () => delayTask(task)); actions.appendChild(delay); }
-    const edit = button('Edit', 'small'); edit.addEventListener('click', () => editTask(task)); actions.appendChild(edit); card.appendChild(actions); list.appendChild(card);
+  const calendar = $('#day-calendar'); calendar.replaceChildren();
+  const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0); const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
+  const header = document.createElement('div'); header.className = 'calendar-day-header'; header.innerHTML = `<strong>${dayStart.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</strong><span>Today</span>`; calendar.appendChild(header);
+  const body = document.createElement('div'); body.className = 'calendar-day-body';
+  const axis = document.createElement('div'); axis.className = 'calendar-axis';
+  for (let minutes = 0; minutes < 1440; minutes += 30) { const label = document.createElement('span'); label.textContent = minutes % 60 === 0 ? formatClock(new Date(dayStart.getTime() + minutes * 60000)) : ''; label.style.top = `${(minutes / 1440) * 100}%`; axis.appendChild(label); }
+  const grid = document.createElement('div'); grid.className = 'calendar-grid'; for (let index = 0; index < 48; index += 1) { const line = document.createElement('i'); line.style.top = `${(index / 48) * 100}%`; grid.appendChild(line); }
+  const events = document.createElement('div'); events.className = 'calendar-events';
+  state.tasks.filter(task => new Date(task.start) < dayEnd && new Date(task.end) > dayStart).forEach(task => {
+    const start = Math.max(dayStart.getTime(), new Date(task.start).getTime()); const end = Math.min(dayEnd.getTime(), new Date(task.end).getTime());
+    const event = document.createElement('article'); event.className = `calendar-event task-${task.status || 'scheduled'}`; event.style.setProperty('--task-color', task.color || '#234f7d'); event.style.top = `${((start - dayStart) / 86400000) * 100}%`; event.style.height = `${Math.max(2, ((end - start) / 86400000) * 100)}%`; event.innerHTML = `<strong>${escapeHtml(task.title)}</strong><span>${formatClock(new Date(start))} - ${formatClock(new Date(end))}</span>`;
+    event.title = task.description || task.title; event.tabIndex = 0; event.addEventListener('click', () => editTask(task)); events.appendChild(event);
   });
+  const marker = document.createElement('b'); marker.className = 'current-time-marker'; marker.style.top = `${((Date.now() - dayStart.getTime()) / 86400000) * 100}%`; body.append(axis, grid, events, marker); calendar.appendChild(body);
 }
 function completeTask(task) { task.status = 'completed'; task.completedAt = new Date().toISOString(); saveState('Task completed'); renderTasks(); }
 function delayTask(task) { const start = prompt('New start time (YYYY-MM-DDTHH:mm)', task.start.slice(0, 16)); if (!start) return; const end = prompt('New end time (YYYY-MM-DDTHH:mm)', task.end.slice(0, 16)); if (!end) return; task.start = new Date(start).toISOString(); task.end = new Date(end).toISOString(); task.status = 'delayed'; saveState('Task delayed'); renderTasks(); }
 function editTask(task) {
-  const start = prompt('Start time (YYYY-MM-DDTHH:mm)', task.start.slice(0, 16));
-  const end = prompt('End time (YYYY-MM-DDTHH:mm)', task.end.slice(0, 16));
+  const start = prompt('Start time (YYYY-MM-DDTHH:mm)', localInputValue(new Date(task.start)));
+  const end = prompt('End time (YYYY-MM-DDTHH:mm)', localInputValue(new Date(task.end)));
   if (start && end && new Date(end) > new Date(start)) { task.start = new Date(start).toISOString(); task.end = new Date(end).toISOString(); }
-  const completed = prompt('Actual completion time (leave blank to keep task open)', task.completedAt ? task.completedAt.slice(0, 16) : '');
+  const completed = prompt('Actual completion time (leave blank to keep task open)', task.completedAt ? localInputValue(new Date(task.completedAt)) : '');
   if (completed) { task.completedAt = new Date(completed).toISOString(); task.status = 'completed'; }
   saveState('Task details saved'); renderTasks();
 }
 function formatDate(date) { return date.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }); }
+function formatClock(date) { return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
+function localInputValue(date) { const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 16); }
 function escapeHtml(value) { const item = document.createElement('div'); item.textContent = value; return item.innerHTML; }
 
-function renderSettings() { $('#configured-url').value = state.settings.configuredUrl; $('#clock-all-pages').checked = state.settings.clockAllPages; $('#default-text-color').value = state.settings.textColor; $('#highlight-color').value = state.settings.highlightColor; }
 function renderLaps() { $('#lap-list').replaceChildren(...state.stopwatch.laps.map((lap, index) => { const item = document.createElement('label'); item.className = 'lap-row'; item.innerHTML = `<span>Lap ${index + 1} · ${formatDuration(lap.elapsed)}</span>`; const input = document.createElement('input'); input.placeholder = 'Description'; input.value = lap.description || ''; input.addEventListener('input', () => { lap.description = input.value; saveState(); }); item.appendChild(input); return item; })); }
 function formatDuration(milliseconds) { const seconds = Math.floor(milliseconds / 1000); return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60].map(value => String(value).padStart(2, '0')).join(':'); }
 function updateStopwatch() { const elapsed = state.stopwatch.elapsed + (state.stopwatch.startedAt ? now() - state.stopwatch.startedAt : 0); $('#stopwatch-display').textContent = formatDuration(elapsed); }
-function updateCountdown() { const remaining = state.countdown.endsAt ? Math.max(0, state.countdown.endsAt - now()) : state.countdown.remaining; $('#countdown-display').textContent = formatDuration(remaining).slice(3); if (state.countdown.endsAt && remaining === 0) { state.countdown.endsAt = null; saveState('Countdown finished'); chrome.runtime.sendMessage({ type: 'COUNTDOWN_FINISHED' }); } }
+function updateCountdown() { const remaining = state.countdown.endsAt ? Math.max(0, state.countdown.endsAt - now()) : state.countdown.remaining; $('#countdown-display').textContent = formatDuration(remaining).slice(3); }
 function startClockLoops() { clearInterval(stopwatchInterval); clearInterval(countdownInterval); stopwatchInterval = setInterval(updateStopwatch, 1000); countdownInterval = setInterval(updateCountdown, 1000); }
 
 function wireEvents() {
   document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => { document.querySelectorAll('.tab').forEach(item => item.classList.toggle('is-active', item === tab)); document.querySelectorAll('.view').forEach(view => view.classList.toggle('is-visible', view.id === tab.dataset.view)); }));
   $('#new-note').addEventListener('click', () => { const note = { id: crypto.randomUUID(), title: 'New note', blocks: [{ id: crypto.randomUUID(), title: 'Text box', html: '', collapsed: false, width: 100, height: 180 }] }; state.notes.push(note); activeNoteId = note.id; saveState(); renderNotes(); });
-  $('#new-task').addEventListener('click', () => { $('#task-form').hidden = false; $('#task-form').elements.start.value = new Date(now() + 3600000).toISOString().slice(0, 16); $('#task-form').elements.end.value = new Date(now() + 7200000).toISOString().slice(0, 16); });
+  $('#new-task').addEventListener('click', () => { $('#task-form').hidden = false; $('#task-form').elements.start.value = localInputValue(new Date(now() + 3600000)); $('#task-form').elements.end.value = localInputValue(new Date(now() + 7200000)); });
   $('#cancel-task').addEventListener('click', () => { $('#task-form').hidden = true; });
   $('#task-form').addEventListener('submit', event => { event.preventDefault(); const form = new FormData(event.currentTarget); const start = form.get('startMode') === 'now' ? new Date() : new Date(form.get('start')); const end = new Date(form.get('end')); if (!(end > start)) { alert('End time must be after the start time.'); return; } state.tasks.push({ id: crypto.randomUUID(), title: form.get('title'), description: form.get('description'), color: form.get('color'), start: start.toISOString(), end: end.toISOString(), status: form.get('startMode') === 'now' ? 'active' : 'scheduled', completedAt: null }); saveState('Task saved'); event.currentTarget.reset(); event.currentTarget.hidden = true; renderTasks(); });
   $('#stopwatch-toggle').addEventListener('click', () => { if (state.stopwatch.startedAt) { state.stopwatch.elapsed += now() - state.stopwatch.startedAt; state.stopwatch.startedAt = null; $('#stopwatch-toggle').textContent = 'Resume'; } else { state.stopwatch.startedAt = now(); $('#stopwatch-toggle').textContent = 'Pause'; } saveState(); });
   $('#stopwatch-reset').addEventListener('click', () => { state.stopwatch = { startedAt: null, elapsed: 0, laps: [] }; $('#stopwatch-toggle').textContent = 'Start'; saveState(); renderLaps(); updateStopwatch(); });
   $('#lap-button').addEventListener('click', () => { const elapsed = state.stopwatch.elapsed + (state.stopwatch.startedAt ? now() - state.stopwatch.startedAt : 0); state.stopwatch.laps.push({ elapsed, description: '' }); saveState(); renderLaps(); });
-  $('#countdown-start').addEventListener('click', () => { if (!state.countdown.endsAt) state.countdown.endsAt = now() + Number($('#countdown-minutes').value || 1) * 60000; saveState(); });
-  $('#countdown-reset').addEventListener('click', () => { state.countdown = { endsAt: null, remaining: 0 }; saveState(); updateCountdown(); });
-  $('#configured-url').addEventListener('change', event => { state.settings.configuredUrl = event.target.value.trim() || 'example.com'; saveState('Page setting saved'); });
-  $('#clock-all-pages').addEventListener('change', event => { state.settings.clockAllPages = event.target.checked; saveState('Clock setting saved'); });
-  $('#default-text-color').addEventListener('change', event => { state.settings.textColor = event.target.value; saveState(); });
-  $('#highlight-color').addEventListener('change', event => { state.settings.highlightColor = event.target.value; saveState(); });
+  $('#countdown-start').addEventListener('click', () => { if (!state.countdown.endsAt) { state.countdown.endsAt = now() + Number($('#countdown-minutes').value || 1) * 60000; chrome.runtime.sendMessage({ type: 'START_COUNTDOWN', endsAt: state.countdown.endsAt }); saveState(); } });
+  $('#countdown-reset').addEventListener('click', () => { state.countdown = { endsAt: null, remaining: 0 }; chrome.runtime.sendMessage({ type: 'RESET_COUNTDOWN' }); saveState(); updateCountdown(); });
   $('#export-all').addEventListener('click', () => downloadJson('notes-tasks-time-backup.json', state));
   $('#export-notes').addEventListener('click', () => downloadJson('notes.json', { notes: state.notes }));
   $('#export-tasks').addEventListener('click', () => downloadJson('schedules.json', { tasks: state.tasks }));

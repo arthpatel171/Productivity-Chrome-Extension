@@ -6,12 +6,14 @@
 - The extension shall support Chrome and Microsoft Edge on desktop. Mobile browsers are out of scope.
 - The app shall combine three separate areas: Notes, a calendar/schedule manager, and time-management tools.
 - Notes shall be independent from calendar events and tasks.
+- The extension shall not configure, target, or inject its workspace into `example.com` or any other configured page. The bundled app is opened from its `chrome-extension://` URL; ordinary web pages receive only the reminder overlay when an active alarm requires it.
 
 ### 2. Notes and Text Boxes
 
 - Users shall be able to create, rename, switch between, and delete multiple independent notes.
 - Each note shall have a user-editable title displayed in its header, replacing the current `NOTE` label.
 - Each note shall support one or more text boxes. Text boxes shall be independently resizable using dimensions similar to the current implementation; resizing one must not resize neighboring boxes.
+- Text boxes shall grow vertically with their content and shall not impose a fixed height that creates an internal scrolling area while typing.
 - Text boxes shall support collapsing and expanding. A collapsed text box shall show only its title/header, and expanding it shall restore its content and saved dimensions.
 - Text boxes shall be reorderable vertically within a note using a dedicated drag handle. The order shall persist after refresh and browser restart.
 - The extension shall remove unnecessary whitespace above the page-level `NOTES` heading while preserving readable spacing and alignment.
@@ -21,19 +23,19 @@
 
 - The note editor shall use a proven WYSIWYG editing library rather than implementing rich-text editing from scratch. The selected library must work in a bundled Chrome/Edge extension page and support local/offline use.
 - The editor toolbar shall support, at minimum, bold, italic, underline, font family, font size, text alignment, undo, redo, text color, and highlight color.
+- Typing `# ` at the beginning of a line shall remove the marker and convert that line to an H1 heading.
 - Formatting shall behave like a word processor: when text is selected, it applies to the selection; with no selection, it applies at the cursor/current typing position.
 - The default font for newly created text and text boxes shall be **Handlee**. Existing formatting must not be overwritten when the default changes.
 - Text color shall use a standard color-picker UI with a visible preview and support hexadecimal `#RRGGBB` values. The chosen color shall apply to selected text or the current typing position.
 - The default highlight color shall be dark blue and shall remain customizable through the color-picker UI.
+- Selecting highlighted text and pressing the highlight toolbar button shall remove the highlight; pressing it on unhighlighted selected text shall apply the highlight color.
 - Invalid hexadecimal input shall show a clear validation state without replacing the last valid color.
 
 ### 4. Clock, Stopwatch, and Laps
 
-- The clock panel shall be fixed on the left side of the configured web page while the user scrolls. The configured page defaults to `example.com` and shall be editable in the extension popup.
-- The clock panel shall be movable and independently adjustable in height and width.
 - The stopwatch shall provide start, pause, resume, reset, and lap controls.
 - Each lap shall include a lap number, elapsed time, and editable user description.
-- A setting shall control whether the clock panel appears only on the configured page or on all supported web pages.
+- The stopwatch and countdown panels shall keep stable dimensions. Adding laps must not resize the countdown panel.
 
 ### 5. Calendar, Tasks, and Reminders
 
@@ -54,15 +56,16 @@
 - A task shall not be treated as completed solely because its scheduled end time has passed. Until the user confirms completion, it shall remain active or require an explicit overdue/delayed state.
 - Timer and task timing shall continue in the background when the user navigates away, changes tabs, closes the app page, or reloads a page. The extension shall use persisted timestamps and the browser's extension alarm capabilities rather than relying only on an open page timer.
 - The extension shall remain extension-only and shall not require a desktop companion application or external service. While the browser is running, scheduled reminders shall be delivered at their scheduled times through the on-page overlay. If the browser is completely closed, task and timer data shall remain persisted; when the browser starts again, the extension shall detect missed reminders and present them to the user.
-- The schedule shall identify current, upcoming, active, and completed tasks and remain usable without horizontal scrolling.
+- The calendar shall present a Microsoft Calendar-style single-day view for the current local day, with a vertical time axis, 30-minute grid lines, a current-time marker, and events positioned by their exact local start and end times.
+- The calendar shall identify current, upcoming, active, and completed tasks and remain usable without horizontal scrolling.
 
 ### 6. Extension Controls and Persistence
 
-- The extension popup shall include an enable/disable control and a field for the configured page URL, defaulting to `example.com`.
-- The current enabled state and configured URL shall persist across browser restarts.
+- The extension popup shall include an enable/disable control and an action to open the bundled workspace.
+- The enabled state shall persist across browser restarts. There shall be no configured-page field and no settings page.
 - Disabling the extension shall stop injected UI and reminders without deleting notes, calendar data, timers, settings, or preferences. Re-enabling shall restore them.
 - The extension shall store data in browser storage with global scope. Notes, schedules, timers, settings, and other user data shall not be separated by web page.
-- The extension shall avoid injecting duplicate UI when navigating, refreshing, or revisiting a page.
+- The extension shall avoid injecting duplicate reminder UI when navigating, refreshing, or revisiting a page.
 - Users shall be able to export and import data as separate categories: notes, schedules/calendar events, settings, and timers. Users shall also be able to export/import one combined backup containing all categories.
 - Import shall validate the file format, report invalid data clearly, and provide a choice to replace existing data or merge it where supported.
 
@@ -72,6 +75,7 @@
 - Core actions shall support standard keyboard shortcuts and keyboard navigation with visible focus states, including formatting, moving between text boxes, collapsing notes, completing tasks, and dismissing reminders.
 - Text and controls shall remain readable and usable at supported desktop viewport sizes.
 - Animations shall be reduced or disabled when the user has enabled a reduced-motion preference.
+- All displayed task, event, stopwatch, lap, and countdown times shall use the user's local time zone and local wall-clock format; UTC strings shall not be shown in the interface.
 - The extension shall inject its own isolated container and must never replace, clear, rewrite, or interfere with the host page's existing DOM content or controls.
 
 ### Definition of Done
@@ -80,6 +84,7 @@
 - Users can create, edit, reorder, resize, collapse, and delete independent notes without affecting calendar data.
 - Notes, settings, schedules, timers, ordering, collapsed state, dimensions, and colors survive refreshes and browser restarts.
 - Background task timing produces start and end reminders while the browser is running, even when the app page is closed or the user is on another supported page. Tasks and timers remain persisted while the browser is closed, and missed reminders are detected after browser restart.
+- Countdown supports only one active countdown. At zero, it displays only a transparent alarm-clock emoji in the top-left corner of supported pages, with no text, panel, or background. The emoji remains visible until clicked, and clicking it dismisses the alarm on every page.
 - Reminder overlays, task overlap, exact start/end times, import/export, and enable/disable behavior are manually verified.
 - End-time reminders provide working complete and delayed actions, preserve incomplete tasks when delayed, and record editable actual completion times.
 - The extension does not replace or interfere with host-page content and does not inject duplicate UI.

@@ -1,5 +1,6 @@
 const START_ALARM = taskId => `task-start-${taskId}`;
 const END_ALARM = taskId => `task-end-${taskId}`;
+const COUNTDOWN_ALARM = 'countdown';
 
 chrome.runtime.onInstalled.addListener(() => { scheduleAllTasks(); });
 chrome.runtime.onStartup.addListener(() => { scheduleAllTasks(); checkMissedTasks(); });
@@ -9,7 +10,7 @@ async function getState() { const result = await chrome.storage.local.get('todoS
 async function scheduleAllTasks() {
   const state = await getState();
   const alarms = await chrome.alarms.getAll();
-  await Promise.all(alarms.filter(alarm => alarm.name.startsWith('task-start-') || alarm.name.startsWith('task-end-')).map(alarm => chrome.alarms.clear(alarm.name)));
+  await Promise.all(alarms.filter(alarm => alarm.name.startsWith('task-start-') || alarm.name.startsWith('task-end-') || alarm.name === COUNTDOWN_ALARM).map(alarm => chrome.alarms.clear(alarm.name)));
   if (state.settings?.enabled === false) return;
   for (const task of state.tasks || []) {
     if (task.status === 'completed') continue;
@@ -17,10 +18,17 @@ async function scheduleAllTasks() {
     if (start > Date.now()) await chrome.alarms.create(START_ALARM(task.id), { when: start });
     if (end > Date.now()) await chrome.alarms.create(END_ALARM(task.id), { when: end });
   }
+  if (state.countdown?.endsAt > Date.now()) await chrome.alarms.create(COUNTDOWN_ALARM, { when: state.countdown.endsAt });
 }
 
 chrome.alarms.onAlarm.addListener(async alarm => {
-  if (alarm.name === 'countdown') { broadcast({ type: 'REMINDER', task: { title: 'Countdown', kind: 'end' } }); return; }
+  if (alarm.name === COUNTDOWN_ALARM) {
+    const state = await getState();
+    state.countdown = { endsAt: null, remaining: 0 };
+    await chrome.storage.local.set({ todoState: state });
+    broadcast({ type: 'COUNTDOWN_ALARM', task: { kind: 'countdown' } });
+    return;
+  }
   const match = alarm.name.match(/^task-(start|end)-(.+)$/); if (!match) return;
   const state = await getState(); const task = (state.tasks || []).find(item => item.id === match[2]); if (!task || task.status === 'completed') return;
   task.reminded = task.reminded || {}; task.reminded[match[1]] = true;
@@ -41,11 +49,13 @@ async function checkMissedTasks() {
 function broadcast(message) { chrome.tabs.query({}).then(tabs => tabs.forEach(tab => { if (tab.id) chrome.tabs.sendMessage(tab.id, message).catch(() => {}); })); }
 
 chrome.runtime.onMessage.addListener(async message => {
+  if (message.type === 'START_COUNTDOWN') { await chrome.alarms.clear(COUNTDOWN_ALARM); await chrome.alarms.create(COUNTDOWN_ALARM, { when: message.endsAt }); }
+  if (message.type === 'RESET_COUNTDOWN') await chrome.alarms.clear(COUNTDOWN_ALARM);
+  if (message.type === 'DISMISS_COUNTDOWN') broadcast({ type: 'DISMISS_COUNTDOWN' });
   if (message.type === 'TASK_ACTION') {
     const state = await getState(); const task = (state.tasks || []).find(item => item.id === message.taskId); if (!task) return;
     if (message.action === 'complete') { task.status = 'completed'; task.completedAt = new Date().toISOString(); }
     if (message.action === 'delay') task.status = 'delayed';
     await chrome.storage.local.set({ todoState: state }); scheduleAllTasks();
   }
-  if (message.type === 'COUNTDOWN_FINISHED') broadcast({ type: 'REMINDER', task: { title: 'Countdown', kind: 'end' } });
 });

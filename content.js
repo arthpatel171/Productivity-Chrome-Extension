@@ -1,16 +1,19 @@
 const OVERLAY_ID = 'todo-extension-overlay';
-const CLOCK_ID = 'todo-extension-clock';
-
-function isConfiguredPage(settings) {
-  if (settings.clockAllPages) return true;
-  const configured = (settings.configuredUrl || 'example.com').replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
-  return location.hostname.toLowerCase() === configured || location.hostname.toLowerCase().endsWith(`.${configured}`);
-}
-
 function removeElement(id) { document.getElementById(id)?.remove(); }
 
 function showReminder(task) {
   removeElement(OVERLAY_ID);
+  if (task.kind === 'countdown') {
+    const alarm = document.createElement('button');
+    alarm.id = OVERLAY_ID;
+    alarm.type = 'button';
+    alarm.className = 'countdown-alarm';
+    alarm.setAttribute('aria-label', 'Dismiss countdown alarm');
+    alarm.textContent = '⏰';
+    alarm.addEventListener('click', () => { chrome.runtime.sendMessage({ type: 'DISMISS_COUNTDOWN' }); removeElement(OVERLAY_ID); });
+    document.documentElement.appendChild(alarm);
+    return;
+  }
   const overlay = document.createElement('aside');
   overlay.id = OVERLAY_ID;
   overlay.setAttribute('role', 'alertdialog');
@@ -34,20 +37,7 @@ function overlayButton(label, className) { const button = document.createElement
 function respond(taskId, action) { chrome.runtime.sendMessage({ type: 'TASK_ACTION', taskId, action }); removeElement(OVERLAY_ID); }
 function escapeHtml(value) { const element = document.createElement('span'); element.textContent = value || ''; return element.innerHTML; }
 
-function showClock() {
-  removeElement(CLOCK_ID);
-  const clock = document.createElement('aside'); clock.id = CLOCK_ID; clock.innerHTML = '<span>Local time</span><strong></strong>';
-  document.documentElement.appendChild(clock);
-  const tick = () => { const display = clock.querySelector('strong'); if (display) display.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); };
-  tick(); setInterval(tick, 1000);
-}
-
-chrome.storage.local.get('todoState').then(({ todoState }) => {
-  if (todoState?.settings?.enabled !== false && todoState.settings && isConfiguredPage(todoState.settings)) showClock();
-});
-chrome.runtime.onMessage.addListener(message => { if (message.type === 'REMINDER') showReminder(message.task); });
-chrome.storage.onChanged.addListener(changes => {
-  const settings = changes.todoState?.newValue?.settings;
-  if (settings?.enabled === false) { removeElement(CLOCK_ID); removeElement(OVERLAY_ID); }
-  if (settings?.enabled !== false && settings && isConfiguredPage(settings) && !document.getElementById(CLOCK_ID)) showClock();
+chrome.runtime.onMessage.addListener(message => {
+  if (message.type === 'REMINDER' || message.type === 'COUNTDOWN_ALARM') showReminder(message.task || { kind: 'countdown' });
+  if (message.type === 'DISMISS_COUNTDOWN') removeElement(OVERLAY_ID);
 });
