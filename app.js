@@ -147,14 +147,23 @@ function delayTask(task) { const start = prompt('New start time (YYYY-MM-DDTHH:m
 function editTask(task) {
   const start = prompt('Start time (YYYY-MM-DDTHH:mm)', localInputValue(new Date(task.start)));
   const end = prompt('End time (YYYY-MM-DDTHH:mm)', localInputValue(new Date(task.end)));
-  if (start && end && new Date(end) > new Date(start)) { task.start = new Date(start).toISOString(); task.end = new Date(end).toISOString(); }
+  const parsedStart = start ? new Date(start) : null;
+  const parsedEnd = end ? new Date(end) : null;
+  if (parsedStart && parsedEnd && !Number.isNaN(parsedStart.getTime()) && !Number.isNaN(parsedEnd.getTime()) && parsedEnd > parsedStart) {
+    task.start = parsedStart.toISOString();
+    task.end = parsedEnd.toISOString();
+  }
   const completed = prompt('Actual completion time (leave blank to keep task open)', task.completedAt ? localInputValue(new Date(task.completedAt)) : '');
-  if (completed) { task.completedAt = new Date(completed).toISOString(); task.status = 'completed'; }
+  const parsedCompleted = completed ? new Date(completed) : null;
+  if (parsedCompleted && !Number.isNaN(parsedCompleted.getTime())) {
+    task.completedAt = parsedCompleted.toISOString();
+    task.status = 'completed';
+  }
   saveState('Task details saved'); renderTasks();
 }
 function formatDate(date) { return date.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }); }
 function formatClock(date) { return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
-function localInputValue(date) { const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 16); }
+function localInputValue(date) { if (Number.isNaN(date.getTime())) return ''; const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 16); }
 function escapeHtml(value) { const item = document.createElement('div'); item.textContent = value; return item.innerHTML; }
 
 function renderLaps() { $('#lap-list').replaceChildren(...state.stopwatch.laps.map((lap, index) => { const item = document.createElement('label'); item.className = 'lap-row'; item.innerHTML = `<span>Lap ${index + 1} · ${formatDuration(lap.elapsed)}</span>`; const input = document.createElement('input'); input.placeholder = 'Description'; input.value = lap.description || ''; input.addEventListener('input', () => { lap.description = input.value; saveState(); }); item.appendChild(input); return item; })); }
