@@ -58,6 +58,12 @@
 - The extension shall remain extension-only and shall not require a desktop companion application or external service. While the browser is running, scheduled reminders shall be delivered at their scheduled times through the on-page overlay. If the browser is completely closed, task and timer data shall remain persisted; when the browser starts again, the extension shall detect missed reminders and present them to the user.
 - The calendar shall present a Microsoft Calendar-style single-day view for the current local day, with a vertical time axis, 30-minute grid lines, a current-time marker, and events positioned by their exact local start and end times.
 - The calendar shall identify current, upcoming, active, and completed tasks and remain usable without horizontal scrolling.
+- The extension name shown in the manifest, browser action, popup, and workspace title shall be **Offline workspace**.
+- Clicking a calendar task shall scroll to the top of the workspace and open the task builder as an edit form. The form shall be prefilled with the task title, description, color, start date/time, and end date/time, and saving it shall update that task without modal prompts.
+- Task editing shall allow an end time equal to the start time, but shall reject an end time earlier than the start time; there shall be no arbitrary minimum completion duration.
+- Users shall be able to type clock times directly in the task form and choose AM or PM with a dedicated control.
+- The current-time marker and calendar display shall refresh while the workspace remains open, without requiring a page reload.
+- Countdown alarms shall be persisted when they reach zero so that a newly opened supported page can display the alarm animation. Reminder delivery should prefer one active page to avoid duplicate messages; a non-invasive message may auto-dismiss after three seconds while the explicit alarm action remains available. The popup/workspace should provide a reminder history where users can mark alerts complete, dismissed, or delayed.
 
 ### 6. Extension Controls and Persistence
 
@@ -68,6 +74,10 @@
 - The extension shall avoid injecting duplicate reminder UI when navigating, refreshing, or revisiting a page.
 - Users shall be able to export and import data as separate categories: notes, schedules/calendar events, settings, and timers. Users shall also be able to export/import one combined backup containing all categories.
 - Import shall validate the file format, report invalid data clearly, and provide a choice to replace existing data or merge it where supported.
+
+### 6.1 Editor ribbon controls
+
+- The note editor ribbon shall include font family and font size controls in addition to the existing formatting controls. Changing them shall apply to the current selection or typing position, and shall not overwrite existing formatting elsewhere.
 
 ### 7. Usability and Accessibility
 

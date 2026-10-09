@@ -24,7 +24,7 @@ async function scheduleAllTasks() {
 chrome.alarms.onAlarm.addListener(async alarm => {
   if (alarm.name === COUNTDOWN_ALARM) {
     const state = await getState();
-    state.countdown = { endsAt: null, remaining: 0 };
+    state.countdown = { endsAt: null, remaining: 0, alarmActive: true };
     await chrome.storage.local.set({ todoState: state });
     broadcast({ type: 'COUNTDOWN_ALARM', task: { kind: 'countdown' } });
     return;
@@ -49,9 +49,30 @@ async function checkMissedTasks() {
 function broadcast(message) { chrome.tabs.query({}).then(tabs => tabs.forEach(tab => { if (tab.id) chrome.tabs.sendMessage(tab.id, message).catch(() => {}); })); }
 
 chrome.runtime.onMessage.addListener(async message => {
-  if (message.type === 'START_COUNTDOWN') { await chrome.alarms.clear(COUNTDOWN_ALARM); await chrome.alarms.create(COUNTDOWN_ALARM, { when: message.endsAt }); }
-  if (message.type === 'RESET_COUNTDOWN') await chrome.alarms.clear(COUNTDOWN_ALARM);
-  if (message.type === 'DISMISS_COUNTDOWN') broadcast({ type: 'DISMISS_COUNTDOWN' });
+  if (message.type === 'GET_ACTIVE_ALARMS') {
+    const state = await getState();
+    if (state.countdown?.alarmActive) broadcast({ type: 'COUNTDOWN_ALARM', task: { kind: 'countdown' } });
+    return;
+  }
+  if (message.type === 'START_COUNTDOWN') {
+    await chrome.alarms.clear(COUNTDOWN_ALARM);
+    await chrome.alarms.create(COUNTDOWN_ALARM, { when: message.endsAt });
+    const state = await getState();
+    state.countdown = { ...(state.countdown || {}), alarmActive: false };
+    await chrome.storage.local.set({ todoState: state });
+  }
+  if (message.type === 'RESET_COUNTDOWN') {
+    await chrome.alarms.clear(COUNTDOWN_ALARM);
+    const state = await getState();
+    state.countdown = { ...(state.countdown || {}), alarmActive: false };
+    await chrome.storage.local.set({ todoState: state });
+  }
+  if (message.type === 'DISMISS_COUNTDOWN') {
+    const state = await getState();
+    state.countdown = { ...(state.countdown || {}), alarmActive: false };
+    await chrome.storage.local.set({ todoState: state });
+    broadcast({ type: 'DISMISS_COUNTDOWN' });
+  }
   if (message.type === 'TASK_ACTION') {
     const state = await getState(); const task = (state.tasks || []).find(item => item.id === message.taskId); if (!task) return;
     if (message.action === 'complete') { task.status = 'completed'; task.completedAt = new Date().toISOString(); }

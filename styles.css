@@ -52,6 +52,7 @@ h3 { margin-bottom: 8px; font-size: 20px; }
 .editor-toolbar { display: flex; align-items: center; gap: 5px; padding: 8px; border-bottom: 1px solid var(--line); background: #171717; }
 .editor-toolbar button { padding: 5px 9px; font-size: 13px; }
 .editor-toolbar input[type="color"] { width: 30px; height: 28px; padding: 2px; }
+.editor-toolbar select { max-width: 130px; padding: 5px; }
 .wysiwyg { min-height: 120px; height: auto; padding: 20px 24px; overflow: visible; resize: none; outline: none; font-family: Handlee, cursive; font-size: 18px; line-height: 1.6; }
 .wysiwyg:empty::before { content: attr(data-placeholder); color: #9ba09e; pointer-events: none; }
 .wysiwyg h1 { margin: .25em 0; font-size: 2em; line-height: 1.15; }
@@ -62,6 +63,9 @@ input, textarea { width: 100%; border: 1px solid var(--line); border-radius: 4px
 fieldset { display: flex; gap: 12px; border: 1px solid var(--line); padding: 10px; }
 fieldset label, .switch-row { display: flex; align-items: center; gap: 6px; }
 fieldset input, .switch-row input { width: auto; }
+.time-input { display: flex; gap: 6px; }
+.time-input input { min-width: 0; }
+.time-input select { width: 66px; border: 1px solid var(--line); border-radius: 4px; background: #1a1a1a; color: var(--ink); }
 .form-actions { margin-top: 18px; }
 .day-calendar { overflow: hidden; border: 1px solid var(--line); border-radius: 6px; background: #0e0e0e; box-shadow: var(--shadow); }
 .calendar-day-header { display: flex; justify-content: space-between; padding: 15px 18px; border-bottom: 1px solid var(--line); background: #151515; font: 14px Arial, sans-serif; }
@@ -94,4 +98,3 @@ fieldset input, .switch-row input { width: auto; }
 .popup-page { width: 280px; min-height: 220px; padding: 18px; background: #0d0d0d; }
 .popup { display: grid; gap: 14px; }
 .popup h1 { font-size: 24px; }
-

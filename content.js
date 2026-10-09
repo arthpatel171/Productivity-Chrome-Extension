@@ -41,3 +41,5 @@ chrome.runtime.onMessage.addListener(message => {
   if (message.type === 'REMINDER' || message.type === 'COUNTDOWN_ALARM') showReminder(message.task || { kind: 'countdown' });
   if (message.type === 'DISMISS_COUNTDOWN') removeElement(OVERLAY_ID);
 });
+
+chrome.runtime.sendMessage({ type: 'GET_ACTIVE_ALARMS' }).catch(() => {});

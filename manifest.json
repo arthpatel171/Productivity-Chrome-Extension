@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Notes, Tasks and Time",
+  "name": "Offline workspace",
   "version": "2.0.0",
   "description": "An offline notes, calendar, and time-management workspace",
   "permissions": ["storage", "alarms", "tabs", "notifications"],
@@ -8,7 +8,7 @@
     "<all_urls>"
   ],
   "action": {
-    "default_title": "Open Notes, Tasks and Time",
+    "default_title": "Open Offline workspace",
     "default_popup": "popup.html"
   },
   "background": {

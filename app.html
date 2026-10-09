@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Notes, Tasks and Time</title>
+  <title>Offline workspace</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body class="todo-app-page">
@@ -11,7 +11,7 @@
     <header class="app-header">
       <div>
         <p class="eyebrow">Offline workspace</p>
-        <h1>Notes, Tasks and Time</h1>
+        <h1>Offline workspace</h1>
       </div>
       <div class="header-actions">
         <button id="export-all" type="button">Export backup</button>
@@ -55,8 +55,10 @@
           <label>Color<input name="color" type="color" value="#2f6fae"></label>
           <label>Description<textarea name="description" rows="2" placeholder="Optional details"></textarea></label>
           <fieldset><legend>Start</legend><label><input name="startMode" type="radio" value="now" checked> Start now</label><label><input name="startMode" type="radio" value="later"> Schedule later</label></fieldset>
-          <label>Start time<input name="start" type="datetime-local"></label>
-          <label>End time<input name="end" type="datetime-local"></label>
+          <label>Start date<input name="startDate" type="date" required></label>
+          <label>Start time<div class="time-input"><input name="startTime" type="text" inputmode="numeric" placeholder="5:47" pattern="[0-9]{1,2}:[0-9]{2}" required><select name="startPeriod" aria-label="Start time AM or PM"><option>AM</option><option>PM</option></select></div></label>
+          <label>End date<input name="endDate" type="date" required></label>
+          <label>End time<div class="time-input"><input name="endTime" type="text" inputmode="numeric" placeholder="6:47" pattern="[0-9]{1,2}:[0-9]{2}" required><select name="endPeriod" aria-label="End time AM or PM"><option>AM</option><option>PM</option></select></div></label>
         </div>
         <div class="form-actions"><button type="submit" class="primary">Save task</button><button id="cancel-task" type="button">Cancel</button></div>
       </form>

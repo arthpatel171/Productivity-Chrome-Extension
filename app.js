@@ -11,6 +11,9 @@ let activeNoteId;
 let activeEditor;
 let stopwatchInterval;
 let countdownInterval;
+let calendarInterval;
+let taskBeingEdited = null;
+let saving = false;
 
 const clone = value => JSON.parse(JSON.stringify(value));
 const $ = selector => document.querySelector(selector);
@@ -28,7 +31,9 @@ async function loadState() {
 }
 
 async function saveState(message) {
+  saving = true;
   await chrome.storage.local.set({ todoState: state });
+  saving = false;
   if (message) setStatus(message);
 }
 
@@ -110,12 +115,15 @@ function createBlock(note, block, index) {
   const collapse = button(block.collapsed ? 'Expand' : 'Collapse', 'icon'); collapse.setAttribute('aria-label', collapse.textContent + ' text box');
   collapse.addEventListener('click', () => { block.collapsed = !block.collapsed; saveState(); renderNotes(); });
   const remove = button('Delete', 'danger'); remove.addEventListener('click', () => { note.blocks = note.blocks.filter(item => item.id !== block.id); saveState(); renderNotes(); });
-  toolbar.append(drag, blockTitle, formatButton('B', 'Bold', 'bold'), formatButton('I', 'Italic', 'italic'), formatButton('U', 'Underline', 'underline'), formatButton('H', 'Highlight', 'toggleHighlight', state.settings.highlightColor), colorPicker(block), collapse, remove);
+  const fontFamily = document.createElement('select'); fontFamily.setAttribute('aria-label', 'Font family'); [['Handlee', 'Handlee, cursive'], ['Arial', 'Arial, sans-serif'], ['Georgia', 'Georgia, serif'], ['Monospace', 'monospace']].forEach(([label, value]) => { const option = new Option(label, value); option.selected = (block.fontFamily || 'Handlee, cursive') === value; fontFamily.appendChild(option); }); fontFamily.addEventListener('change', () => { if (activeEditor) { activeEditor.focus(); document.execCommand('fontName', false, fontFamily.value); activeEditor.dispatchEvent(new Event('input')); } });
+  const fontSize = document.createElement('select'); fontSize.setAttribute('aria-label', 'Font size'); [['Small', '2'], ['Normal', '3'], ['Large', '5'], ['Huge', '7']].forEach(([label, value]) => fontSize.appendChild(new Option(label, value))); fontSize.addEventListener('change', () => { if (activeEditor) { activeEditor.focus(); document.execCommand('fontSize', false, fontSize.value); activeEditor.dispatchEvent(new Event('input')); } });
+  toolbar.append(drag, blockTitle, formatButton('B', 'Bold', 'bold'), formatButton('I', 'Italic', 'italic'), formatButton('U', 'Underline', 'underline'), fontFamily, fontSize, formatButton('H', 'Highlight', 'toggleHighlight', state.settings.highlightColor), colorPicker(block), collapse, remove);
   const editor = document.createElement('div'); editor.className = 'wysiwyg'; editor.contentEditable = 'true'; editor.innerHTML = block.html || ''; editor.style.fontFamily = 'Handlee, cursive'; editor.dataset.placeholder = 'Start typing...';
   editor.addEventListener('focus', () => { activeEditor = editor; });
-  editor.addEventListener('input', () => { applyTypingShortcut(editor); block.html = editor.innerHTML; saveState(); });
+  editor.addEventListener('input', () => { applyTypingShortcut(editor); block.html = editor.innerHTML; block.fontFamily = fontFamily.value; saveState(); });
   editor.addEventListener('blur', () => { block.html = editor.innerHTML; saveState(); });
   if (block.collapsed) editor.hidden = true;
+  editor.style.fontFamily = block.fontFamily || 'Handlee, cursive';
   article.append(toolbar, editor);
   return article;
 }
@@ -135,54 +143,82 @@ function renderTasks() {
   for (let minutes = 0; minutes < 1440; minutes += 30) { const label = document.createElement('span'); label.textContent = minutes % 60 === 0 ? formatClock(new Date(dayStart.getTime() + minutes * 60000)) : ''; label.style.top = `${(minutes / 1440) * 100}%`; axis.appendChild(label); }
   const grid = document.createElement('div'); grid.className = 'calendar-grid'; for (let index = 0; index < 48; index += 1) { const line = document.createElement('i'); line.style.top = `${(index / 48) * 100}%`; grid.appendChild(line); }
   const events = document.createElement('div'); events.className = 'calendar-events';
-  state.tasks.filter(task => new Date(task.start) < dayEnd && new Date(task.end) > dayStart).forEach(task => {
+  state.tasks.filter(task => isValidDate(task.start) && isValidDate(task.end) && new Date(task.start) < dayEnd && new Date(task.end) > dayStart).forEach(task => {
     const start = Math.max(dayStart.getTime(), new Date(task.start).getTime()); const end = Math.min(dayEnd.getTime(), new Date(task.end).getTime());
     const event = document.createElement('article'); event.className = `calendar-event task-${task.status || 'scheduled'}`; event.style.setProperty('--task-color', task.color || '#234f7d'); event.style.top = `${((start - dayStart) / 86400000) * 100}%`; event.style.height = `${Math.max(2, ((end - start) / 86400000) * 100)}%`; event.innerHTML = `<strong>${escapeHtml(task.title)}</strong><span>${formatClock(new Date(start))} - ${formatClock(new Date(end))}</span>`;
-    event.title = task.description || task.title; event.tabIndex = 0; event.addEventListener('click', () => editTask(task)); events.appendChild(event);
+    event.title = task.description || task.title; event.tabIndex = 0; event.addEventListener('click', () => editTask(task)); event.addEventListener('keydown', keyboardEvent => { if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') { keyboardEvent.preventDefault(); editTask(task); } }); events.appendChild(event);
   });
   const marker = document.createElement('b'); marker.className = 'current-time-marker'; marker.style.top = `${((Date.now() - dayStart.getTime()) / 86400000) * 100}%`; body.append(axis, grid, events, marker); calendar.appendChild(body);
 }
 function completeTask(task) { task.status = 'completed'; task.completedAt = new Date().toISOString(); saveState('Task completed'); renderTasks(); }
-function delayTask(task) { const start = prompt('New start time (YYYY-MM-DDTHH:mm)', task.start.slice(0, 16)); if (!start) return; const end = prompt('New end time (YYYY-MM-DDTHH:mm)', task.end.slice(0, 16)); if (!end) return; task.start = new Date(start).toISOString(); task.end = new Date(end).toISOString(); task.status = 'delayed'; saveState('Task delayed'); renderTasks(); }
+function delayTask(task) { const start = prompt('Start time (YYYY-MM-DDTHH:mm)', localInputValue(new Date(task.start))); if (!start) return; const end = prompt('End time (YYYY-MM-DDTHH:mm)', localInputValue(new Date(task.end))); if (!end) return; const startIso = safeIsoDate(start); const endIso = safeIsoDate(end); if (!startIso || !endIso || new Date(endIso) <= new Date(startIso)) return; task.start = startIso; task.end = endIso; task.status = 'delayed'; saveState('Task delayed'); renderTasks(); }
 function editTask(task) {
-  const start = prompt('Start time (YYYY-MM-DDTHH:mm)', localInputValue(new Date(task.start)));
-  const end = prompt('End time (YYYY-MM-DDTHH:mm)', localInputValue(new Date(task.end)));
-  const parsedStart = start ? new Date(start) : null;
-  const parsedEnd = end ? new Date(end) : null;
-  if (parsedStart && parsedEnd && !Number.isNaN(parsedStart.getTime()) && !Number.isNaN(parsedEnd.getTime()) && parsedEnd > parsedStart) {
-    task.start = parsedStart.toISOString();
-    task.end = parsedEnd.toISOString();
-  }
-  const completed = prompt('Actual completion time (leave blank to keep task open)', task.completedAt ? localInputValue(new Date(task.completedAt)) : '');
-  const parsedCompleted = completed ? new Date(completed) : null;
-  if (parsedCompleted && !Number.isNaN(parsedCompleted.getTime())) {
-    task.completedAt = parsedCompleted.toISOString();
-    task.status = 'completed';
-  }
-  saveState('Task details saved'); renderTasks();
+  const form = $('#task-form');
+  taskBeingEdited = task;
+  form.hidden = false;
+  form.elements.title.value = task.title || '';
+  form.elements.description.value = task.description || '';
+  form.elements.color.value = task.color || '#2f6fae';
+  form.elements.startDate.value = localInputValue(new Date(task.start)).slice(0, 10);
+  form.elements.endDate.value = localInputValue(new Date(task.end)).slice(0, 10);
+  setTimeFields(form, 'start', new Date(task.start));
+  setTimeFields(form, 'end', new Date(task.end));
+  form.closest('.view').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 function formatDate(date) { return date.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }); }
 function formatClock(date) { return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
-function localInputValue(date) { if (Number.isNaN(date.getTime())) return ''; const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 16); }
+function isValidDate(value) { const date = value instanceof Date ? value : new Date(value); return !Number.isNaN(date.getTime()); }
+function safeIsoDate(value) { if (!value) return ''; const date = new Date(value); if (!isValidDate(date)) return ''; try { return date.toISOString(); } catch { return ''; } }
+function localInputValue(date) { if (!isValidDate(date)) return ''; const offset = date.getTimezoneOffset() * 60000; const localDate = new Date(date.getTime() - offset); return isValidDate(localDate) ? localDate.toISOString().slice(0, 16) : ''; }
+function setTimeFields(form, prefix, date) {
+  const value = localInputValue(date);
+  const [hourText, minute] = value.slice(11).split(':');
+  const hour = Number(hourText);
+  form.elements[`${prefix}Time`].value = `${hour % 12 || 12}:${minute}`;
+  form.elements[`${prefix}Period`].value = hour >= 12 ? 'PM' : 'AM';
+}
+function parseDateTime(dateValue, timeValue, period) {
+  const match = String(timeValue).trim().match(/^(\d{1,2}):([0-5]\d)$/);
+  if (!dateValue || !match) return null;
+  const hour = Number(match[1]);
+  if (hour < 1 || hour > 12) return null;
+  const date = new Date(`${dateValue}T${String((hour % 12) + (period === 'PM' ? 12 : 0)).padStart(2, '0')}:${match[2]}`);
+  return isValidDate(date) ? date : null;
+}
 function escapeHtml(value) { const item = document.createElement('div'); item.textContent = value; return item.innerHTML; }
 
 function renderLaps() { $('#lap-list').replaceChildren(...state.stopwatch.laps.map((lap, index) => { const item = document.createElement('label'); item.className = 'lap-row'; item.innerHTML = `<span>Lap ${index + 1} · ${formatDuration(lap.elapsed)}</span>`; const input = document.createElement('input'); input.placeholder = 'Description'; input.value = lap.description || ''; input.addEventListener('input', () => { lap.description = input.value; saveState(); }); item.appendChild(input); return item; })); }
 function formatDuration(milliseconds) { const seconds = Math.floor(milliseconds / 1000); return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60].map(value => String(value).padStart(2, '0')).join(':'); }
 function updateStopwatch() { const elapsed = state.stopwatch.elapsed + (state.stopwatch.startedAt ? now() - state.stopwatch.startedAt : 0); $('#stopwatch-display').textContent = formatDuration(elapsed); }
 function updateCountdown() { const remaining = state.countdown.endsAt ? Math.max(0, state.countdown.endsAt - now()) : state.countdown.remaining; $('#countdown-display').textContent = formatDuration(remaining).slice(3); }
-function startClockLoops() { clearInterval(stopwatchInterval); clearInterval(countdownInterval); stopwatchInterval = setInterval(updateStopwatch, 1000); countdownInterval = setInterval(updateCountdown, 1000); }
+function startClockLoops() { clearInterval(stopwatchInterval); clearInterval(countdownInterval); clearInterval(calendarInterval); stopwatchInterval = setInterval(updateStopwatch, 1000); countdownInterval = setInterval(updateCountdown, 1000); calendarInterval = setInterval(renderTasks, 30000); }
 
 function wireEvents() {
   document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => { document.querySelectorAll('.tab').forEach(item => item.classList.toggle('is-active', item === tab)); document.querySelectorAll('.view').forEach(view => view.classList.toggle('is-visible', view.id === tab.dataset.view)); }));
   $('#new-note').addEventListener('click', () => { const note = { id: crypto.randomUUID(), title: 'New note', blocks: [{ id: crypto.randomUUID(), title: 'Text box', html: '', collapsed: false, width: 100, height: 180 }] }; state.notes.push(note); activeNoteId = note.id; saveState(); renderNotes(); });
-  $('#new-task').addEventListener('click', () => { $('#task-form').hidden = false; $('#task-form').elements.start.value = localInputValue(new Date(now() + 3600000)); $('#task-form').elements.end.value = localInputValue(new Date(now() + 7200000)); });
-  $('#cancel-task').addEventListener('click', () => { $('#task-form').hidden = true; });
-  $('#task-form').addEventListener('submit', event => { event.preventDefault(); const form = new FormData(event.currentTarget); const start = form.get('startMode') === 'now' ? new Date() : new Date(form.get('start')); const end = new Date(form.get('end')); if (!(end > start)) { alert('End time must be after the start time.'); return; } state.tasks.push({ id: crypto.randomUUID(), title: form.get('title'), description: form.get('description'), color: form.get('color'), start: start.toISOString(), end: end.toISOString(), status: form.get('startMode') === 'now' ? 'active' : 'scheduled', completedAt: null }); saveState('Task saved'); event.currentTarget.reset(); event.currentTarget.hidden = true; renderTasks(); });
+  $('#new-task').addEventListener('click', () => { taskBeingEdited = null; const form = $('#task-form'); form.reset(); form.hidden = false; const start = new Date(now() + 3600000); const end = new Date(now() + 7200000); form.elements.startDate.value = localInputValue(start).slice(0, 10); form.elements.endDate.value = localInputValue(end).slice(0, 10); setTimeFields(form, 'start', start); setTimeFields(form, 'end', end); });
+  $('#cancel-task').addEventListener('click', () => { taskBeingEdited = null; $('#task-form').hidden = true; });
+  $('#task-form').addEventListener('submit', event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const start = form.elements.startMode.value === 'now' && !taskBeingEdited ? new Date() : parseDateTime(form.elements.startDate.value, form.elements.startTime.value, form.elements.startPeriod.value);
+    const end = parseDateTime(form.elements.endDate.value, form.elements.endTime.value, form.elements.endPeriod.value);
+    if (!start || !end || end < start) { setStatus('End time cannot be before the start time.'); return; }
+    if (taskBeingEdited) {
+      Object.assign(taskBeingEdited, { title: form.elements.title.value, description: form.elements.description.value, color: form.elements.color.value, start: start.toISOString(), end: end.toISOString() });
+      saveState('Task details saved');
+    } else {
+      state.tasks.push({ id: crypto.randomUUID(), title: form.elements.title.value, description: form.elements.description.value, color: form.elements.color.value, start: start.toISOString(), end: end.toISOString(), status: form.elements.startMode.value === 'now' ? 'active' : 'scheduled', completedAt: null });
+      saveState('Task saved');
+    }
+    taskBeingEdited = null; form.reset(); form.hidden = true; renderTasks();
+  });
   $('#stopwatch-toggle').addEventListener('click', () => { if (state.stopwatch.startedAt) { state.stopwatch.elapsed += now() - state.stopwatch.startedAt; state.stopwatch.startedAt = null; $('#stopwatch-toggle').textContent = 'Resume'; } else { state.stopwatch.startedAt = now(); $('#stopwatch-toggle').textContent = 'Pause'; } saveState(); });
   $('#stopwatch-reset').addEventListener('click', () => { state.stopwatch = { startedAt: null, elapsed: 0, laps: [] }; $('#stopwatch-toggle').textContent = 'Start'; saveState(); renderLaps(); updateStopwatch(); });
   $('#lap-button').addEventListener('click', () => { const elapsed = state.stopwatch.elapsed + (state.stopwatch.startedAt ? now() - state.stopwatch.startedAt : 0); state.stopwatch.laps.push({ elapsed, description: '' }); saveState(); renderLaps(); });
-  $('#countdown-start').addEventListener('click', () => { if (!state.countdown.endsAt) { state.countdown.endsAt = now() + Number($('#countdown-minutes').value || 1) * 60000; chrome.runtime.sendMessage({ type: 'START_COUNTDOWN', endsAt: state.countdown.endsAt }); saveState(); } });
-  $('#countdown-reset').addEventListener('click', () => { state.countdown = { endsAt: null, remaining: 0 }; chrome.runtime.sendMessage({ type: 'RESET_COUNTDOWN' }); saveState(); updateCountdown(); });
+  $('#countdown-start').addEventListener('click', () => { if (!state.countdown.endsAt) { state.countdown = { endsAt: now() + Math.max(0, Number($('#countdown-minutes').value || 0)) * 60000, remaining: 0, alarmActive: false }; chrome.runtime.sendMessage({ type: 'START_COUNTDOWN', endsAt: state.countdown.endsAt }); saveState(); } });
+  $('#countdown-reset').addEventListener('click', () => { state.countdown = { endsAt: null, remaining: 0, alarmActive: false }; chrome.runtime.sendMessage({ type: 'RESET_COUNTDOWN' }); saveState(); updateCountdown(); });
   $('#export-all').addEventListener('click', () => downloadJson('notes-tasks-time-backup.json', state));
   $('#export-notes').addEventListener('click', () => downloadJson('notes.json', { notes: state.notes }));
   $('#export-tasks').addEventListener('click', () => downloadJson('schedules.json', { tasks: state.tasks }));
@@ -205,7 +241,7 @@ async function importCategory(event, category) { const imported = await readJson
 wireEvents();
 loadState();
 chrome.storage.onChanged.addListener(changes => {
-  if (!changes.todoState?.newValue || activeEditor) return;
+  if (!changes.todoState?.newValue || saving || activeEditor || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable) return;
   state = changes.todoState.newValue;
   renderAll();
 });
