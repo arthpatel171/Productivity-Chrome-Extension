@@ -14,7 +14,9 @@
         <h1>Offline Workspace</h1>
       </div>
       <div class="header-actions header-tools">
+        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme">☀️ Light</button>
         <details class="settings-menu"><summary>Settings</summary><form id="settings-form" class="settings-popup">
+          <label>Theme<select id="theme-select" name="theme"><option value="dark">Dark</option><option value="light">Light</option></select></label>
           <label>Background image URL<input id="background-image-url" name="backgroundImageUrl" type="url" placeholder="https://example.com/image.jpg"></label>
           <div class="settings-actions"><button type="submit" class="primary">Apply</button><button id="clear-background-image" type="button">Clear</button></div>
           <p class="settings-help">Use an image URL available to the browser.</p>
@@ -59,11 +61,10 @@
 
     <section id="notes-view" class="view">
       <div class="section-heading">
-        <div><p class="eyebrow">Write freely</p><h2>Your notes</h2></div>
-        <button id="new-note" class="primary" type="button">+ New note</button>
+        <div><p class="eyebrow">Write freely</p><h2>Notes</h2></div>
       </div>
       <div class="notes-layout">
-        <aside id="note-list" class="note-list" aria-label="Notes"></aside>
+        <aside class="note-sidebar" aria-label="Notes"><h2>My Notes</h2><button id="new-note" class="add-note-button" type="button" aria-label="Add new note">+ New Note</button><div id="note-list" class="note-list"></div></aside>
         <section id="note-editor-panel" class="note-editor-panel" aria-live="polite"></section>
       </div>
     </section>
@@ -72,7 +73,7 @@
       <div class="section-heading"><div><p class="eyebrow">Keep momentum</p><h2>Time tools</h2></div></div>
       <div class="tool-grid">
         <section class="tool-panel"><h3>Stopwatch</h3><output id="stopwatch-display">00:00:00</output><div class="button-row"><button id="stopwatch-toggle" class="primary" type="button">Start</button><button id="stopwatch-reset" type="button">Reset</button><button id="lap-button" type="button">Lap</button></div><div id="lap-list" class="lap-list"></div></section>
-        <section class="tool-panel"><h3>Countdown</h3><div class="countdown-inputs"><label>Hours<input id="countdown-hours" type="number" min="0" step="1" value="0"></label><label>Minutes<input id="countdown-minutes" type="number" min="0" step="1" value="0"></label><label>Seconds<input id="countdown-seconds" type="number" min="0" max="59" step="1" value="0"></label></div><output id="countdown-display">00:00</output><div class="button-row"><button id="countdown-start" class="primary" type="button">Start</button><button id="countdown-reset" type="button">Reset</button></div></section>
+        <section class="tool-panel"><h3>Countdown</h3><div class="countdown-inputs"><label>Hours<input id="countdown-hours" type="number" min="0" step="1" value="0"></label><label>Minutes<input id="countdown-minutes" type="number" min="0" step="1" value="0"></label><label>Seconds<input id="countdown-seconds" type="number" min="0" max="59" step="1" value="0"></label></div><output id="countdown-display">00:00:00</output><div class="button-row"><button id="countdown-start" class="primary" type="button">Start</button><button id="countdown-reset" type="button">Reset</button></div></section>
       </div>
     </section>
 

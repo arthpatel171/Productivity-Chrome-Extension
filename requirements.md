@@ -193,6 +193,10 @@ field or a separate settings page.
 ## 10. Settings and appearance
 
 - The workspace includes a Settings dropdown beside the Import/Export dropdown.
+- Users can choose between a Dark theme and a Light theme using a header toggle button or the Settings dropdown.
+- The extension popup also provides a theme toggle button and synchronizes theme changes.
+- Theme preferences are saved to extension storage and persist across sessions.
+- Theme changes transition smoothly with animated color and background transitions without layout shifts or content re-rendering.
 - Users can enter a background image URL.
 - Applying a URL stores it in workspace settings and applies it to the whole workspace.
 - The background image is centered, non-repeating, fixed, and scaled with `cover`.

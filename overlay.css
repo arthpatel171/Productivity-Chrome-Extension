@@ -3,7 +3,8 @@
 #todo-extension-overlay h2 { margin: 4px 0 8px; font: 700 18px Arial, sans-serif; }
 #todo-extension-overlay p { margin: 6px 0 14px; }
 #todo-extension-overlay .overlay-actions { display: flex; gap: 8px; }
-#todo-extension-overlay button { border: 1px solid #444; border-radius: 4px; background: #222; color: #f5f5f5; cursor: pointer; padding: 8px 10px; }
+#todo-extension-overlay button { border: 1px solid #444; border-radius: 15px; background: #222; color: #f5f5f5; cursor: pointer; padding: 8px 10px; box-shadow: 0 7px 0 rgba(0, 0, 0, .28); transition: transform .1s ease, box-shadow .1s ease, border-color .1s ease; }
+#todo-extension-overlay button:active { transform: translateY(7px); box-shadow: 0 0 0 rgba(0, 0, 0, .28); }
 #todo-extension-overlay button.complete { border-color: #2f6fae; background: #2f6fae; color: #fff; }
 #todo-extension-overlay button.finish { border-color: #dc2626; background: #dc2626; color: #fff; }
 #todo-extension-overlay button.extend { border-color: #2f6fae; background: #2f6fae; color: #fff; }

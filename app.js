@@ -15,7 +15,7 @@ const DEFAULT_STATE = {
   notes: [{ id: crypto.randomUUID(), title: 'Welcome note', blocks: [{ id: crypto.randomUUID(), title: 'Ideas', html: '<p>Start writing here.</p>', collapsed: false, width: 100, height: 180, fontFamily: 'Arial, sans-serif', customColors: [] }] }],
   tasks: [], stopwatch: { startedAt: null, elapsed: 0, laps: [] },
   countdown: { endsAt: null, remaining: 0, alarmActive: false, occurrence: null, dismissed: false },
-  settings: { textColor: '#d7e3f4', highlightColor: '#123b66', enabled: true },
+  settings: { textColor: '#d7e3f4', highlightColor: '#123b66', enabled: true, theme: 'dark' },
   calendar: { visibleStart: 8 * 60, visibleEnd: 1440 }
 };
 
@@ -28,6 +28,7 @@ let calendarInterval;
 let taskBeingEdited;
 let calendarScrollTop = 0;
 let saving = false;
+let lastSavedStateJson = '';
 const $ = selector => document.querySelector(selector);
 const now = () => Date.now();
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -38,21 +39,36 @@ async function loadState() {
   state.notes = Array.isArray(state.notes) && state.notes.length ? state.notes : clone(DEFAULT_STATE.notes);
   state.tasks = Array.isArray(state.tasks) ? state.tasks : [];
   state.settings = { ...clone(DEFAULT_STATE.settings), ...(state.settings || {}) };
+  applyTheme(state.settings.theme);
   applyBackgroundImage(state.settings.backgroundImageUrl);
   state.calendar = { ...clone(DEFAULT_STATE.calendar), ...(state.calendar || {}) };
   if (!stored.todoState?.calendar || (state.calendar.visibleStart === 0 && state.calendar.visibleEnd === 1440)) state.calendar = clone(DEFAULT_STATE.calendar);
   $('#background-image-url').value = state.settings.backgroundImageUrl || '';
   activeNoteId = state.notes[0].id;
+  lastSavedStateJson = JSON.stringify(state);
   renderAll();
   startClockLoops();
 }
 async function saveState(message) {
   saving = true;
+  lastSavedStateJson = JSON.stringify(state);
   await chrome.storage.local.set({ todoState: state });
   saving = false;
   if (message) setStatus(message);
 }
 function setStatus(message) { const status = $('#app-status'); if (status) status.textContent = message; }
+function applyTheme(value) {
+  const current = value === 'light' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', current);
+  const toggle = $('#theme-toggle');
+  if (toggle) {
+    toggle.textContent = current === 'light' ? '🌙 Dark' : '☀️ Light';
+    toggle.setAttribute('aria-label', `Switch to ${current === 'light' ? 'dark' : 'light'} theme`);
+    toggle.title = `Switch to ${current === 'light' ? 'dark' : 'light'} theme`;
+  }
+  const select = $('#theme-select');
+  if (select) select.value = current;
+}
 function applyBackgroundImage(value) {
   const url = typeof value === 'string' ? value.trim() : '';
   document.body.style.backgroundImage = url ? `url("${url.replaceAll('"', '%22')}")` : '';
@@ -67,22 +83,42 @@ function escapeHtml(value) { const item = document.createElement('div'); item.te
 function renderAll() { renderNotes(); renderTasks(); renderLaps(); updateStopwatch(); updateCountdown(); }
 function renderNotes() {
   const list = $('#note-list'); const panel = $('#note-editor-panel'); list.replaceChildren();
-  state.notes.forEach(note => { const item = button(note.title || 'Untitled note', `note-list-item${note.id === activeNoteId ? ' is-active' : ''}`); item.addEventListener('click', () => { activeNoteId = note.id; renderNotes(); }); list.appendChild(item); });
+  state.notes.forEach(note => {
+    const row = document.createElement('div'); row.className = 'note-list-row';
+    const item = button(note.title || 'Untitled note', `note-list-item${note.id === activeNoteId ? ' is-active' : ''}`);
+    item.addEventListener('click', () => { activeNoteId = note.id; renderNotes(); });
+    const remove = button('🗑️', 'note-delete-button'); remove.title = 'Delete note'; remove.setAttribute('aria-label', `Delete ${note.title || 'untitled note'}`);
+    remove.addEventListener('click', event => { event.stopPropagation(); deleteNote(note); });
+    row.append(item, remove); list.appendChild(row);
+  });
+  $('#new-note').onclick = () => addNote();
   const note = state.notes.find(item => item.id === activeNoteId) || state.notes[0]; activeNoteId = note.id; panel.replaceChildren();
   const heading = document.createElement('div'); heading.className = 'note-heading';
   const title = document.createElement('input'); title.className = 'note-title'; title.value = note.title; title.setAttribute('aria-label', 'Note title'); title.addEventListener('input', () => { note.title = title.value; renderNotesListOnly(); saveState(); });
-  const remove = button('Delete note', 'danger'); remove.addEventListener('click', () => { if (state.notes.length === 1 || confirm('Delete this note?')) { state.notes = state.notes.filter(item => item.id !== note.id); activeNoteId = state.notes[0].id; saveState('Note deleted'); renderNotes(); } });
-  heading.append(title, remove); panel.appendChild(heading);
-  note.blocks.forEach((block, index) => panel.appendChild(createBlock(note, block, index)));
-  const add = button('+ Add text box', 'primary'); add.addEventListener('click', () => { note.blocks.push(newBlock()); saveState(); renderNotes(); }); panel.appendChild(add);
+  const add = button('+ Add Text Box', 'primary add-box-button'); add.addEventListener('click', () => { note.blocks.push(newBlock()); saveState(); renderNotes(); }); heading.append(title, add); panel.appendChild(heading);
+  const blockList = document.createElement('div'); blockList.className = 'note-block-list';
+  note.blocks.forEach((block, index) => blockList.appendChild(createBlock(note, block, index, blockList)));
+  panel.appendChild(blockList);
+}
+function addNote() {
+  const note = { id: crypto.randomUUID(), title: 'New note', blocks: [newBlock()] };
+  state.notes.push(note); activeNoteId = note.id; saveState(); renderNotes();
+}
+function deleteNote(note) {
+  if (state.notes.length === 1) return setStatus('At least one note must remain.');
+  if (!confirm(`Delete "${note.title || 'Untitled note'}"?`)) return;
+  state.notes = state.notes.filter(item => item.id !== note.id);
+  if (activeNoteId === note.id) activeNoteId = state.notes[0].id;
+  saveState('Note deleted'); renderNotes();
 }
 function newBlock() { return { id: crypto.randomUUID(), title: 'Text box', html: '', collapsed: false, width: 100, height: 180, fontFamily: 'Arial, sans-serif', customColors: [] }; }
-function renderNotesListOnly() { [...$('#note-list').children].forEach((item, index) => { item.textContent = state.notes[index].title || 'Untitled note'; }); }
-function createBlock(note, block, index) {
+function renderNotesListOnly() { [...$('#note-list').querySelectorAll('.note-list-item')].forEach((item, index) => { item.textContent = state.notes[index].title || 'Untitled note'; }); }
+function createBlock(note, block, index, blockList) {
+  const wrapper = document.createElement('div'); wrapper.className = 'editor-wrapper';
+  wrapper.dataset.blockId = block.id;
+  const drag = button('⠿', 'drag-handle'); drag.title = 'Move text box'; drag.setAttribute('aria-label', 'Move text box');
   const article = document.createElement('article'); article.className = `editor-card${block.collapsed ? ' is-collapsed' : ''}`; article.style.width = `${block.width || 100}%`;
   const toolbar = document.createElement('div'); toolbar.className = 'editor-toolbar';
-  const drag = button('↕', 'icon'); drag.title = 'Move text box'; drag.setAttribute('aria-label', 'Move text box'); drag.draggable = true; drag.addEventListener('dragstart', event => event.dataTransfer.setData('text/plain', String(index)));
-  article.addEventListener('dragover', event => event.preventDefault()); article.addEventListener('drop', event => { event.preventDefault(); const from = Number(event.dataTransfer.getData('text/plain')); if (Number.isInteger(from) && from !== index) { const [moved] = note.blocks.splice(from, 1); note.blocks.splice(index, 0, moved); saveState(); renderNotes(); } });
   const blockTitle = document.createElement('input'); blockTitle.className = 'block-title'; blockTitle.value = block.title || 'Text box'; blockTitle.setAttribute('aria-label', 'Text box title'); blockTitle.addEventListener('input', () => { block.title = blockTitle.value; saveState(); });
   const fontFamily = document.createElement('select'); fontFamily.className = 'font-family'; fontFamily.setAttribute('aria-label', 'Font family'); populateFonts(fontFamily, block);
   fontFamily.addEventListener('change', () => { rememberFont(fontFamily.value); applyCommand('fontName', fontFamily.value); block.fontFamily = fontFamily.value; editor.style.fontFamily = fontFamily.value; saveState(); });
@@ -92,13 +128,44 @@ function createBlock(note, block, index) {
   const highlight = colorPicker(block, 'Highlight color', 'hiliteColor', state.settings.highlightColor);
   const collapse = button(block.collapsed ? 'Expand' : 'Collapse', 'icon'); collapse.addEventListener('click', () => { block.collapsed = !block.collapsed; saveState(); renderNotes(); });
   const remove = button('Delete', 'danger'); remove.addEventListener('click', () => { note.blocks = note.blocks.filter(item => item.id !== block.id); saveState(); renderNotes(); });
-  toolbar.append(drag, blockTitle, formatButton('B', 'Bold', 'bold'), formatButton('I', 'Italic', 'italic'), formatButton('U', 'Underline', 'underline'), formatButton('•', 'Bulleted list', 'insertUnorderedList'), formatButton('1.', 'Numbered list', 'insertOrderedList'), fontFamily, fontSize, color, highlight, collapse, remove);
+  toolbar.append(blockTitle, formatButton('B', 'Bold', 'bold'), formatButton('I', 'Italic', 'italic'), formatButton('U', 'Underline', 'underline'), formatButton('•', 'Bulleted list', 'insertUnorderedList'), formatButton('1.', 'Numbered list', 'insertOrderedList'), fontFamily, fontSize, color, highlight, collapse, remove);
   const editor = document.createElement('div'); editor.className = 'wysiwyg'; editor.contentEditable = 'true'; editor.innerHTML = block.html || ''; editor.dataset.placeholder = 'Start typing...'; editor.style.fontFamily = block.fontFamily || 'Arial, sans-serif'; editor.style.minHeight = `${block.height || 180}px`;
   editor.addEventListener('focus', () => { activeEditor = editor; });
   editor.addEventListener('keyup', () => syncToolbar(editor, fontFamily)); editor.addEventListener('mouseup', () => syncToolbar(editor, fontFamily));
   editor.addEventListener('input', () => { applyTypingShortcut(editor); block.html = editor.innerHTML; block.fontFamily = window.getComputedStyle(editor).fontFamily || block.fontFamily; block.height = editor.scrollHeight; block.customColors = (block.customColors || []).filter(colorValue => block.html.toLowerCase().includes(colorValue.toLowerCase())); saveState(); });
   editor.addEventListener('blur', () => { block.html = editor.innerHTML; activeEditor = null; saveState(); });
-  if (block.collapsed) editor.hidden = true; article.append(toolbar, editor); return article;
+  if (block.collapsed) editor.hidden = true; article.append(toolbar, editor); wrapper.append(drag, article); enableBlockDragging(note, block, wrapper, drag, blockList); return wrapper;
+}
+function enableBlockDragging(note, block, wrapper, drag, blockList) {
+  drag.addEventListener('pointerdown', event => {
+    event.preventDefault();
+    const rect = wrapper.getBoundingClientRect();
+    const placeholder = document.createElement('div'); placeholder.className = 'editor-placeholder'; placeholder.style.height = `${rect.height}px`;
+    blockList.insertBefore(placeholder, wrapper.nextSibling);
+    wrapper.classList.add('is-dragging'); wrapper.style.width = `${rect.width}px`; wrapper.style.left = `${rect.left}px`; wrapper.style.top = `${rect.top}px`;
+    document.body.appendChild(wrapper);
+    const offsetY = event.clientY - rect.top;
+    const move = moveEvent => {
+      wrapper.style.top = `${moveEvent.clientY - offsetY}px`;
+      [...blockList.children].filter(item => item !== wrapper && item !== placeholder).some(item => {
+        const itemRect = item.getBoundingClientRect();
+        if (moveEvent.clientY < itemRect.top + itemRect.height / 2) { blockList.insertBefore(placeholder, item); return true; }
+        return false;
+      }) || blockList.appendChild(placeholder);
+    };
+    const stop = () => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', stop);
+      blockList.insertBefore(wrapper, placeholder);
+      wrapper.classList.remove('is-dragging'); wrapper.style.width = ''; wrapper.style.left = ''; wrapper.style.top = '';
+      placeholder.remove();
+      const order = [...blockList.querySelectorAll('.editor-wrapper')].map(item => item.dataset.blockId);
+      const reordered = order.map(id => note.blocks.find(item => item.id === id)).filter(Boolean);
+      if (reordered.length === note.blocks.length) { note.blocks = reordered; saveState(); renderNotes(); }
+    };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', stop, { once: true });
+  });
 }
 function fontEntries(block) {
   const recent = Array.isArray(state.settings.recentFonts) ? state.settings.recentFonts : [];
@@ -228,12 +295,23 @@ function overlaps(start, end, excludeId = null) { return state.tasks.some(task =
 function renderLaps() { $('#lap-list').replaceChildren(...state.stopwatch.laps.map((lap, index) => { const item = document.createElement('label'); item.className = 'lap-row'; item.innerHTML = `<span>Lap ${index + 1} · ${formatDuration(lap.elapsed)}</span>`; const input = document.createElement('input'); input.placeholder = 'Description'; input.value = lap.description || ''; input.addEventListener('input', () => { lap.description = input.value; saveState(); }); item.appendChild(input); return item; })); }
 function formatDuration(milliseconds) { const seconds = Math.max(0, Math.floor(milliseconds / 1000)); return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60].map(value => String(value).padStart(2, '0')).join(':'); }
 function updateStopwatch() { const elapsed = state.stopwatch.elapsed + (state.stopwatch.startedAt ? now() - state.stopwatch.startedAt : 0); $('#stopwatch-display').textContent = formatDuration(elapsed); }
-function updateCountdown() { const remaining = state.countdown.endsAt ? Math.max(0, state.countdown.endsAt - now()) : state.countdown.remaining; $('#countdown-display').textContent = formatDuration(remaining).slice(3); }
+function updateCountdown() { const remaining = state.countdown.endsAt ? Math.max(0, state.countdown.endsAt - now()) : state.countdown.remaining; $('#countdown-display').textContent = formatDuration(remaining); }
 function startClockLoops() { clearInterval(stopwatchInterval); clearInterval(countdownInterval); clearInterval(calendarInterval); stopwatchInterval = setInterval(updateStopwatch, 1000); countdownInterval = setInterval(updateCountdown, 1000); calendarInterval = setInterval(renderTasks, 30000); }
 
 function wireEvents() {
+  $('#theme-toggle')?.addEventListener('click', () => {
+    const nextTheme = state.settings.theme === 'light' ? 'dark' : 'light';
+    state.settings.theme = nextTheme;
+    applyTheme(nextTheme);
+    saveState();
+  });
+  $('#theme-select')?.addEventListener('change', event => {
+    const nextTheme = event.target.value === 'light' ? 'light' : 'dark';
+    state.settings.theme = nextTheme;
+    applyTheme(nextTheme);
+    saveState();
+  });
   document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => { document.querySelectorAll('.tab').forEach(item => item.classList.toggle('is-active', item === tab)); document.querySelectorAll('.view').forEach(view => view.classList.toggle('is-visible', view.id === tab.dataset.view)); }));
-  $('#new-note').addEventListener('click', () => { const note = { id: crypto.randomUUID(), title: 'New note', blocks: [newBlock()] }; state.notes.push(note); activeNoteId = note.id; saveState(); renderNotes(); });
   $('#new-task').addEventListener('click', () => { taskBeingEdited = null; const form = $('#task-form'); form.reset(); form.hidden = false; $('#task-meta').textContent = ''; const start = new Date(); form.elements.startDate.value = localInputValue(start).slice(0, 10); form.elements.endDate.value = ''; setTimeFields(form, 'start', start); form.elements.endTime.value = ''; form.querySelector('.form-actions').querySelectorAll('.task-action').forEach(item => item.remove()); window.scrollTo({ top: 0, behavior: 'smooth' }); });
   $('#cancel-task').addEventListener('click', () => { taskBeingEdited = null; $('#task-form').hidden = true; });
   $('#task-form').addEventListener('submit', event => {
@@ -278,9 +356,33 @@ function wireImportExport() {
 }
 function downloadJson(name, data) { const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })); link.download = name; link.click(); URL.revokeObjectURL(link.href); }
 async function readJson(event) { const file = event.target.files[0]; event.target.value = ''; if (!file) return null; try { return JSON.parse(await file.text()); } catch { setStatus('Import failed: choose a valid JSON file.'); return null; } }
-async function importJson(event) { const imported = await readJson(event); if (!imported || typeof imported !== 'object') return; state = { ...state, ...imported, settings: { ...state.settings, ...(imported.settings || {}) } }; await saveState('Backup imported'); renderAll(); }
-async function importCategory(event, category) { const imported = await readJson(event); if (!imported) return; if (category === 'settings') state.settings = { ...state.settings, ...(imported.settings || {}) }; else if (category === 'timers') { state.stopwatch = imported.stopwatch || state.stopwatch; state.countdown = imported.countdown || state.countdown; } else if (Array.isArray(imported[category])) state[category] = imported[category]; else return setStatus(`Import failed: no ${category} data found.`); await saveState(`${category} imported`); renderAll(); }
+async function importJson(event) { const imported = await readJson(event); if (!imported || typeof imported !== 'object') return; state = { ...state, ...imported, settings: { ...state.settings, ...(imported.settings || {}) } }; applyTheme(state.settings.theme); applyBackgroundImage(state.settings.backgroundImageUrl); await saveState('Backup imported'); renderAll(); }
+async function importCategory(event, category) { const imported = await readJson(event); if (!imported) return; if (category === 'settings') { state.settings = { ...state.settings, ...(imported.settings || {}) }; applyTheme(state.settings.theme); applyBackgroundImage(state.settings.backgroundImageUrl); } else if (category === 'timers') { state.stopwatch = imported.stopwatch || state.stopwatch; state.countdown = imported.countdown || state.countdown; } else if (Array.isArray(imported[category])) state[category] = imported[category]; else return setStatus(`Import failed: no ${category} data found.`); await saveState(`${category} imported`); renderAll(); }
 
 wireEvents();
 loadState();
-chrome.storage.onChanged.addListener(changes => { if (!changes.todoState?.newValue || saving || activeEditor || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable) return; state = changes.todoState.newValue; renderAll(); });
+chrome.storage.onChanged.addListener(changes => {
+  const newValue = changes.todoState?.newValue;
+  if (!newValue) return;
+  const newJson = JSON.stringify(newValue);
+  if (newJson === lastSavedStateJson) return;
+
+  if (newValue.settings?.theme && newValue.settings.theme !== state?.settings?.theme) {
+    applyTheme(newValue.settings.theme);
+  }
+
+  if (saving || activeEditor || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable) return;
+
+  const contentChanged = !state ||
+    JSON.stringify(state.notes) !== JSON.stringify(newValue.notes) ||
+    JSON.stringify(state.tasks) !== JSON.stringify(newValue.tasks) ||
+    JSON.stringify(state.stopwatch?.laps) !== JSON.stringify(newValue.stopwatch?.laps) ||
+    state.calendar?.visibleStart !== newValue.calendar?.visibleStart ||
+    state.settings?.backgroundImageUrl !== newValue.settings?.backgroundImageUrl;
+
+  state = newValue;
+  lastSavedStateJson = newJson;
+  if (contentChanged) {
+    renderAll();
+  }
+});
