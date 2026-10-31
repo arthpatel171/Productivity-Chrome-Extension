@@ -4,6 +4,10 @@
   background: var(--bg);
   color: var(--ink);
   --bg: #020011;
+  --background-gradient:
+    radial-gradient(circle at 14% 20%, rgba(43, 23, 86, .72), transparent 38%),
+    radial-gradient(circle at 86% 76%, rgba(28, 44, 104, .5), transparent 42%),
+    linear-gradient(135deg, #020011 0%, #090522 48%, #020011 100%);
   --ink: #f5f5f5;
   --muted: #929292;
   --paper: #111111;
@@ -29,6 +33,11 @@
 
 [data-theme="light"] {
   color-scheme: light;
+  --background-gradient:
+    radial-gradient(circle at 18% 24%, rgba(255, 255, 255, .78), transparent 30%),
+    radial-gradient(circle at 82% 72%, rgba(255, 255, 255, .62), transparent 34%),
+    radial-gradient(circle at 54% 92%, rgba(255, 255, 255, .46), transparent 28%),
+    linear-gradient(135deg, #f2f2d4 0%, #f7f4d9 48%, #f2f2d4 100%);
   --bg: #f2f2d4;
   --ink: #0f172a;
   --muted: #64748b;
@@ -64,6 +73,8 @@ html {
 }
 
 body {
+  position: relative;
+  isolation: isolate;
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
@@ -73,6 +84,35 @@ body {
   background-position: center;
   background-attachment: fixed;
   color: var(--ink);
+}
+
+body::before {
+  position: fixed;
+  z-index: -1;
+  inset: -18%;
+  content: "";
+  background: var(--background-gradient);
+  background-size: 145% 145%;
+  filter: blur(18px);
+  animation: background-drift 24s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+@keyframes background-drift {
+  0% {
+    background-position: 0% 12%;
+    transform: translate3d(-2%, -1%, 0) scale(1);
+  }
+
+  50% {
+    background-position: 100% 58%;
+    transform: translate3d(2%, 1%, 0) scale(1.04);
+  }
+
+  100% {
+    background-position: 26% 100%;
+    transform: translate3d(-1%, 2%, 0) scale(1.02);
+  }
 }
 
 button, input, textarea, select { font: inherit; }
@@ -235,7 +275,7 @@ fieldset input, .switch-row input { width: auto; }
 @media (max-width: 700px) { #todo-extension-app { padding: 28px 14px 48px; } .app-header, .section-heading { align-items: start; flex-direction: column; } .notes-layout, .tool-grid, .form-grid, .settings-grid { grid-template-columns: 1fr; } .note-sidebar { border-right: 0; border-bottom: 1px solid var(--line); } .note-heading { align-items: start; flex-direction: column; } .task-card { grid-template-columns: 6px 1fr; } .task-actions { grid-column: 2; } .tabs { width: 100%; } .tab { padding-inline: 20px; } }
 @media (max-width: 450px) { .offline-workspace { font-size: 30px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
-.popup-page { width: 280px; min-height: 220px; padding: 18px; background-color: var(--popup-bg); color: var(--ink); }
+.popup-page { width: 280px; min-height: 220px; padding: 18px; background-color: transparent; color: var(--ink); }
 .popup { display: grid; gap: 14px; }
 .popup-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .popup-top h1 { margin: 0; font-size: 20px; letter-spacing: -.03em; }
@@ -248,3 +288,6 @@ fieldset input, .switch-row input { width: auto; }
 .popup-status-panel .popup-task { padding: 10px; border: 1px solid; border-radius: 6px; color: #fff; }
 .popup-status-panel .late { color: #ef4444; }
 .countdown-inputs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+@media (prefers-reduced-motion: reduce) {
+  body::before { animation: none; }
+}

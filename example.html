@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Offline Workspace</title>
+<title>Title Section</title>
 
 <style>
 * {
@@ -13,168 +13,113 @@
 
 body {
     margin: 0;
-    min-height: 100vh;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    background: #0b1020;
     font-family: Arial, sans-serif;
+    background: #f3f4f6;
+    color: #222;
+    transition: background 0.3s, color 0.3s;
 }
 
-/* Main container */
-.container {
-    text-align: center;
+/* Title section */
+.title-section {
+    display: block;
+    width: 100%;
+    min-height: 100px;
+    background: white;
+    padding: 25px 30px;
+    border-radius: 0 0 12px 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    transition: background 0.3s, box-shadow 0.3s;
 }
 
-/* Animated Offline Workspace text */
-.offline-workspace {
-    font-size: 42px;
-    font-weight: bold;
-
-    background: linear-gradient(
-        90deg,
-        #06b6d4,
-        #6366f1,
-        #06b6d4
-    );
-
-    background-size: 200% auto;
-    background-position: 0% center;
-
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-
-    animation: gradientMove 3s linear infinite;
-}
-
-/* Gradient animation */
-@keyframes gradientMove {
-    from {
-        background-position: 0% center;
-    }
-
-    to {
-        background-position: 200% center;
-    }
-}
-
-/* Navigation bar */
-nav {
-    display: flex;
-    align-items: center;
-    position: relative;
-    gap: 5px;
-    padding: 7px;
-    margin-top: 30px;
-
-    background: #151c30;
-    border: 1px solid #28334c;
-    border-radius: 16px;
-}
-
-/* Navigation links */
-nav a {
-    position: relative;
-    z-index: 2;
-    padding: 14px 28px;
-
-    color: #9ca3af;
-    text-decoration: none;
-    font-size: 14px;
-
+.title-section h1 {
+    margin: 0;
+    font-size: 28px;
+    color: #222;
     transition: color 0.3s;
 }
 
-nav a.active {
+/* Theme buttons */
+.theme-controls {
+    display: flex;
+    gap: 10px;
+    padding: 25px 30px;
+}
+
+.theme-controls button {
+    padding: 11px 20px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    background: #e5e7eb;
+    color: #222;
+    transition: 0.2s;
+}
+
+.theme-controls button:hover {
+    transform: translateY(-2px);
+}
+
+.theme-controls button.active {
+    background: #2563eb;
     color: white;
 }
 
-/* Sliding liquid indicator */
-.indicator {
-    position: absolute;
-    height: 43px;
-    border-radius: 11px;
-
-    background: linear-gradient(
-        90deg,
-        #06b6d4,
-        #6366f1
-    );
-
-    z-index: 1;
-    pointer-events: none;
-
-    transition:
-        left 0.5s cubic-bezier(.68,-0.2,.27,1.3),
-        width 0.5s cubic-bezier(.68,-0.2,.27,1.3);
+/* Dark mode */
+body.dark-mode {
+    background: #0b1020;
+    color: white;
 }
 
-/* Responsive design */
-@media (max-width: 450px) {
-    .offline-workspace {
-        font-size: 30px;
-    }
+body.dark-mode .title-section {
+    background: #151c30;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
 
-    nav a {
-        padding: 12px 17px;
-        font-size: 13px;
-    }
+body.dark-mode .title-section h1 {
+    color: white;
+}
+
+body.dark-mode .theme-controls button {
+    background: #28334c;
+    color: #cbd5e1;
+}
+
+body.dark-mode .theme-controls button.active {
+    background: #2563eb;
+    color: white;
 }
 </style>
 </head>
 
 <body>
 
-<div class="container">
+<section class="title-section">
+    <h1>My Website Title</h1>
+</section>
 
-    <h1 class="offline-workspace">
-        Offline Workspace
-    </h1>
+<div class="theme-controls">
+    <button id="lightButton" class="active" onclick="setTheme('light')">
+        Light Mode
+    </button>
 
-    <nav>
-        <span class="indicator"></span>
-
-        <a href="#" class="active"
-           onclick="changeTab(event,this)">Home</a>
-
-        <a href="#"
-           onclick="changeTab(event,this)">Projects</a>
-
-        <a href="#"
-           onclick="changeTab(event,this)">About</a>
-    </nav>
-
+    <button id="darkButton" onclick="setTheme('dark')">
+        Dark Mode
+    </button>
 </div>
 
 <script>
-const nav = document.querySelector("nav");
-const indicator = document.querySelector(".indicator");
+function setTheme(theme) {
+    const isDark = theme === "dark";
 
-function updateIndicator(link) {
-    indicator.style.width = link.offsetWidth + "px";
-    indicator.style.left = link.offsetLeft + "px";
+    document.body.classList.toggle("dark-mode", isDark);
+
+    document.getElementById("lightButton")
+        .classList.toggle("active", !isDark);
+
+    document.getElementById("darkButton")
+        .classList.toggle("active", isDark);
 }
-
-function changeTab(event, link) {
-    event.preventDefault();
-
-    nav.querySelectorAll("a").forEach(a => {
-        a.classList.remove("active");
-    });
-
-    link.classList.add("active");
-
-    updateIndicator(link);
-}
-
-// Set initial indicator position
-updateIndicator(document.querySelector(".active"));
-
-// Keep indicator aligned when window resizes
-window.addEventListener("resize", () => {
-    updateIndicator(document.querySelector(".active"));
-});
 </script>
 
 </body>
