@@ -1,112 +1,255 @@
-## Todo Extension Requirements
+# Offline Workspace Requirements
 
-### 1. Product Scope and App Page
+This document describes the functionality currently implemented by the extension as of
+October 30, 2026. It is a current-state specification, not a list of planned features.
 
-- The extension shall provide a standalone app page bundled inside the extension and opened through a `chrome-extension://` URL. It must work without internet access or external hosting.
-- The extension shall support Chrome and Microsoft Edge on desktop. Mobile browsers are out of scope.
-- The app shall combine three separate areas: Notes, a calendar/schedule manager, and time-management tools.
-- Notes shall be independent from calendar events and tasks.
-- The extension shall not configure, target, or inject its workspace into `example.com` or any other configured page. The bundled app is opened from its `chrome-extension://` URL; ordinary web pages receive only the reminder overlay when an active alarm requires it.
+## 1. Product and platform
 
-### 2. Notes and Text Boxes
+- The product name is **Offline Workspace**.
+- The extension is a Manifest V3 Chrome/Edge desktop extension.
+- The bundled workspace is opened from `app.html` through the extension popup.
+- User data is stored globally in `chrome.storage.local`; it is not separated by website.
+- The extension does not require an external server for notes, tasks, timers, or settings.
+- Content scripts are excluded from `example.com` and `www.example.com`.
 
-- Users shall be able to create, rename, switch between, and delete multiple independent notes.
-- Each note shall have a user-editable title displayed in its header, replacing the current `NOTE` label.
-- Each note shall support one or more text boxes. Text boxes shall be independently resizable using dimensions similar to the current implementation; resizing one must not resize neighboring boxes.
-- Text boxes shall grow vertically with their content and shall not impose a fixed height that creates an internal scrolling area while typing.
-- Text boxes shall support collapsing and expanding. A collapsed text box shall show only its title/header, and expanding it shall restore its content and saved dimensions.
-- Text boxes shall be reorderable vertically within a note using a dedicated drag handle. The order shall persist after refresh and browser restart.
-- The extension shall remove unnecessary whitespace above the page-level `NOTES` heading while preserving readable spacing and alignment.
-- Users shall be able to delete any note, including notes with no content. Deleting a note shall require confirmation or an undo option.
-- There shall be shortcuts to text formatting. If the user types `# ` in the textbox, then that line shall automatically become heading 1. If the user types `* ` or `- `, then it should automatically start a bulleted list starting with the line `* ` or `- ` appears on, with the list using an asterisk or a dash depending on what the user wrote to initate the list. Typing `1) ` or `1. ` shall automatically start a numbered list using `)` or `.` respectively depending on what the user chose to initiate. 
+## 2. Workspace areas
 
-### 3. WYSIWYG Editor and Appearance
+The workspace has three tabs:
 
-- The note editor shall use a proven WYSIWYG editing library rather than implementing rich-text editing from scratch. The selected library must work in a bundled Chrome/Edge extension page and support local/offline use.
-- The editor toolbar shall support, at minimum, bold, italic, underline, font family, font size, text alignment, undo, redo, text color, and highlight color.
-- The font-family control shall contain a substantially expanded, curated list of common system-safe and bundled fonts. Each option shall be rendered in its own font so users can preview the font in the control, in the same manner as a word processor.
-- The font-family control shall maintain a persisted list of recently used fonts and show those fonts at the top, without duplicates, followed by the full font list.
-- Clicking or placing the caret in text that uses a font shall update the font-family control to display that font. The displayed value shall update when the selection changes between differently formatted text.
-- Typing `# ` at the beginning of a line shall remove the marker and convert that line to an H1 heading.
-- Formatting shall behave like a word processor: when text is selected, it applies to the selection; with no selection, it applies at the cursor/current typing position.
-- The default font for newly created text and text boxes shall be **Arial**. Existing formatting must not be overwritten when the default changes.
-- Text color shall use a standard color-picker UI with a visible preview and support hexadecimal `#RRGGBB` values. Standard colors should also be offered, which include Dark Red, Red, Orange, Yellow, Light Green, Green, Teal, Blue, Dark Blue, Purple (Violet). Any user chosen color from the color picker shall be added to standard colors options. The chosen color shall apply to selected text or the current typing position. If any manually chosen color is not used in a textbox, then that color shall be removed from the standard colors option. Therefore, it is possible that standard colors in one textbox are different than stadard colors from a different textbox
-- The default highlight color shall be dark blue and shall remain customizable through the color-picker UI and standard colors.
-- Selecting highlighted text and pressing the highlight toolbar button shall remove the highlight; pressing it on unhighlighted selected text shall apply the highlight color.
-- Invalid hexadecimal input shall show a clear validation state without replacing the last valid color.
+1. **Calendar**
+2. **Notes**
+3. **Time tools**
 
-### 4. Clock, Stopwatch, and Laps
+The workspace opens to the Calendar tab when loaded. The current tab is selected in the workspace UI. Notes, tasks, stopwatch data,
+countdown data, and settings are stored together in the persisted workspace state.
 
-- The stopwatch shall provide start, pause, resume, reset, and lap controls.
-- Each lap shall include a lap number, elapsed time, and editable user description.
-- The stopwatch and countdown panels shall keep stable dimensions. Adding laps must not resize the countdown panel.
-- When a countdown reaches zero, it shall display an alarm emoji on the page the user is currently on. There shall be no message or background for the alarm emoji. Clicking the alarm emoji will dismiss it, making it disapear from the page I am currently on. The alarm emoji shall not be displayed in every single tab the user has open, it should only display on the current tab the user is on.
-- The countdown shall give 3 input boxes: hours, minutes, and seconds. All values shall default to 0.
+## 3. Notes
 
-### 5. Calendar, Tasks, and Reminders
+- Users can create multiple notes.
+- Each note has an editable title.
+- Notes can be selected and deleted. Deleting a note requires confirmation, and the
+  final remaining note cannot be deleted.
+- Each note can contain multiple text boxes.
+- Text boxes have editable titles and can be deleted.
+- Text boxes can be reordered vertically using their drag handle.
+- Text boxes can be collapsed and expanded.
+- Text boxes save their content, order, width, height, collapsed state, font, and
+  color-related settings.
+- Text boxes use a content-editable WYSIWYG editor.
+- Text boxes are independently resizable through their saved dimensions and grow with
+  their content.
+- Typing `# ` at the beginning of a line converts the line to an H1.
+- Typing `* ` or `- ` starts a bulleted list.
+- Typing `1) ` or `1. ` starts a numbered list.
 
-- The extension shall provide a calendar/schedule management view with events and tasks that have a title, optional description, start time, end time, and customizable color. The user can manually select the color from a color picker UI or have standard colors. 
-- At task creation, users shall choose either **Start now** or **Schedule for later**. The user must provide an end time for every task, including tasks started with **Start now**. The start time shall not be before the current time and the end time must be after the start time. If the user clicks **Start now**, then a task box shall appear in the schedule.
-- Multiple tasks may not overlap.
-- The schedule shall display a 30-minute time-axis for reference, while allowing exact times such as `5:47`. These exact times shall fit perfectly in the y axis, which has the time references. So `5:47` shall be slightly more below than halfway beteen the `5:30` reference and `6:00` reference.
-- New tasks shall default start time to the current local time at the moment the create task button is clicked.
-- A task started immediately shall display from its actual start time. A task may be ended manually, which records the end time at the moment the user chooses **Finish task**. Manual task completion can happen when the user clicks the task in the schedule. This brings the user to the top of the page containing task information. Since the task has already been started, a **Finish task** button appears with a green background. Clicking that button shall end the task and the box shall adjust its size accordingly to represent its start and end time in the schedule. If the scheduled end time arrives while the task is still active, a popup shall appear only on the tab the user is currently viewing. The popup shall show an alarm, task title, **Finish** button, and **Extend** button, and shall not have a dismiss or close action. The user must choose **Finish** or **Extend**. The **Finish** button ends the task so the schedule stops growing the task box. The **Extend** button places the task into an extended state; the task box shall continue growing indefinitely until the user clicks the task and chooses **End task** in its properties. The **Finish** or **End task** action for an extended task shall use a red background. If the extended task reaches the start time of another task, the later task and every following task shall be pushed later minute by minute so that no tasks overlap. Any blank periods between tasks shall be pushed as part of the schedule flow as well.
-- While an extended task is growing, all later task start and end times shall be shifted and persisted, preserving each task's original duration. The shifts shall apply even when the intervening schedule contains blank time. If the shifted schedule reaches beyond the currently visible time frame, the visible end boundary shall extend automatically. The visible frame shall never hide any portion of an active or scheduled task. If the schedule extends past midnight, the calendar shall add or extend the grey dashed midnight divider and allow task boxes to continue across it.
-- Active tasks shall display a box spanning from their start time to the current time. Completed tasks shall display from their start time to their recorded end time. Empty periods shall remain blank.
-- Clicking a task shall scroll the workspace to the top and show its task properties.
-- Task details shall include a clearly labeled **Delete task** action. Deleting a task shall require confirmation and remove it from the schedule calendar, making that space blank.
-- A task shall not be treated as completed solely because its scheduled end time has passed. Until the user confirms completion, it shall remain active or require an explicit overdue/delayed state.
-- Timer and task timing shall continue in the background when the user navigates away, changes tabs, closes the app page, or reloads a page. The extension shall use persisted timestamps and the browser's extension alarm capabilities rather than relying only on an open page timer.
-- The extension shall remain extension-only and shall not require a desktop companion application or external service. While the browser is running, scheduled reminders shall be delivered at their scheduled times through the on-page overlay. If the browser is completely closed, task and timer data shall remain persisted; when the browser starts again, the extension shall detect missed reminders and present them to the user.
-- The calendar shall present a Microsoft Calendar-style single-day view for the current local day, with a vertical time axis, 30-minute grid lines, a current-time marker, and events positioned by their exact local start and end times.
-- The calendar's visible day window shall have independently draggable start and end boundary controls. The controls shall be blue horizontal handles that can be dragged vertically to shorten or expand the displayed calendar window without changing any task's stored start or end values.
-- The default visible day window shall be from 8am to 10pm. The full day remains available by dragging either boundary.
-- The calendar shall never hide any portion of an active or scheduled task. If any task would fall partly or wholly outside the visible time window, the appropriate visible boundary shall expand automatically until the entire task duration is visible.
-- A grey dashed horizontal divider shall mark midnight within the calendar when the visible window crosses midnight. The time axis below that divider shall begin at `12:01 AM`, allowing a task such as 10:00 PM–3:00 AM to continue visually across the divider.
-- Changing the visible day start shall clip only the rendered portion of a task that falls before the window; it shall never delete, truncate, or mutate the task's stored properties. For example, a 6:00 AM–8:00 AM task shown with a 7:00 AM day start shall render from 7:00 AM to 8:00 AM, while task details continue to show 6:00 AM–8:00 AM.
-- The calendar shall identify current, upcoming, active, and completed tasks and remain usable without horizontal scrolling.
-- The extension name shown in the manifest, browser action, popup, and workspace title shall be **Offline Workspace**.
-- Clicking a calendar task shall scroll to the top of the workspace and open the task builder as an edit form. The form shall be prefilled with the task title, description, color, start date/time, and end date/time, and saving it shall update that task without modal prompts.
-- Users shall be able to type clock times directly in the task form and choose AM or PM with a dedicated control.
-- The current-time marker and calendar display shall refresh while the workspace remains open, without requiring a page reload.
+## 4. Editor and formatting
 
-### 6. Extension Controls and Persistence
+The editor toolbar currently provides:
 
-- The extension popup shall include an enable/disable control and an action to open the bundled workspace.
-- The enabled state shall persist across browser restarts. There shall be no configured-page field and no settings page.
-- Disabling the extension shall stop injected UI and reminders without deleting notes, calendar data, timers, settings, or preferences. Re-enabling shall start displaying the injected UI if necessary again.
-- The extension shall store data in browser storage with global scope. Notes, schedules, timers, settings, and other user data shall not be separated by web page.
-- The extension shall avoid injecting duplicate reminder UI when navigating, refreshing, or revisiting a page.
-- Users shall be able to export and import data as separate categories: notes, schedules/calendar events, settings, and timers. Users shall also be able to export/import one combined backup containing all categories.
-- Import shall validate the file format, report invalid data clearly, and provide a choice to replace existing data or merge it where supported.
-- All of the buttons for import and export shall fall into a dropdown menu titled `Import/Export`. Expanding that drowdown shall display all of the import buttons and export buttons. 
+- Bold
+- Italic
+- Underline
+- Bulleted list
+- Numbered list
+- Font family
+- Font size
+- Text color
+- Highlight color
+- Collapse/expand
+- Delete text box
 
-### 6.1 Editor ribbon controls
+Font behavior:
 
-- The note editor ribbon shall include font family, font size controls, color, highlight, bold, italic, underline, and numbered and bulleted list. Changing them shall apply to the current selection or typing position, and shall not overwrite existing formatting elsewhere.
+- The font list includes common system fonts and additional named fonts.
+- Each font option is previewed using that font.
+- Up to eight recently used fonts are persisted and placed before the remaining
+  font options without duplicates.
+- Selecting text or placing the caret in formatted text synchronizes the font
+  dropdown when the browser exposes the selected font.
+- New text boxes default to Arial.
 
-### 7. Usability and Accessibility
+Color behavior:
 
-- Controls shall have clear labels or accessible names, including drag handles, color pickers, timer controls, collapse controls, task menus, reminder overlays, and the enable/disable toggle.
-- Core actions shall support standard keyboard shortcuts and keyboard navigation with visible focus states, including formatting, moving between text boxes, collapsing notes, completing tasks, and dismissing reminders.
-- Text and controls shall remain readable and usable at supported desktop viewport sizes.
-- All displayed task, event, stopwatch, lap, and countdown times shall use the user's local time zone and local wall-clock format; UTC strings shall not be shown in the interface.
-- The extension shall inject its own isolated container and must never replace, clear, rewrite, or interfere with the host page's existing DOM content or controls.
+- Text and highlight colors use color inputs.
+- The default text color comes from the workspace settings.
+- The default highlight color is dark blue.
+- User-selected colors are retained for the text box when they are used.
+- Invalid custom hexadecimal text entry is not separately supported because the current
+  controls use the browser's native color input.
 
-### Extension Popup
-- The extension popup shall have a black,blue, and white theme. Black background, blue buttons, and white text.
-- It shall display the title of the extension, which is `Offline Workspace`, it shall have an enable checkbox, which when on shall inject the alarm alerts when either the countdown reaches 0 or task scheduled finish time arrives. Not checking that box shall not display those alerts. The countdown shall reset automatically when it reaches 0 and the task shall automatically go into extended state when the time comes for it to display the popup.
-- There shall be a `ⓘ` next to enable extension checkbox on the right of the `Enable Extension` text that when i hover over it, a popup appears with the text `Allow popups on your active page when the timer hits 0 or a scheduled end time of your task arrives.`. The text shall be in white and in grey backgroun.
-- There shall also be a section under the enable and disable icons that displays current status of timer and tasks. For timer, it shall display how many hr, min, sec are left. For tasks, it shall display task name, start time like `Start Time: ` + whatever the start time is and it shall display the scheduled end time like `Scheduled End Time: ` + whatever the scheduled end time is. For any extended tasks, since they are still active, the extension popup shall merely make the font color of scheduled end time red since that time has already passed. 
+## 5. Stopwatch and laps
 
-### Definition of Done
+- The stopwatch supports start, pause, resume, reset, and lap.
+- Each lap records its elapsed time.
+- Each lap has an editable description.
+- Stopwatch state and lap data are persisted.
+- Stopwatch display updates while the workspace is open.
 
-- The standalone `chrome-extension://` app works offline in Chrome and Edge desktop.
-- Users can create, edit, reorder, resize, collapse, and delete independent notes without affecting calendar data.
-- Notes, settings, schedules, timers, ordering, collapsed state, dimensions, and colors survive refreshes and browser restarts.
-- Background task timing produces start and end reminders while the browser is running, even when the app page is closed or the user is on another supported page. Tasks and timers remain persisted while the browser is closed, and missed reminders are detected after browser restart.
-- Countdown supports only one active countdown. At zero, an alarm emoji appears that grows in size, vibrates, and shrinks. Clicking on that emoji will dismiss the alarm. The emoji shall have transparent background to it looks like a clear emoji popup rather than a rectangle popup. There shall be no duplicate popups across pages. Dismissal is persisted for that countdown occurrence and prevents the same notification from returning after reopening the workspace or visiting another page.
-- Reminder overlays, task non-overlap, automatic persisted task shifting, exact start/end times, automatic visible-frame extension, import/export, and enable/disable behavior are manually verified.
-- End-time reminders provide working complete and extend actions, preserve incomplete tasks when extended, and record editable actual completion times.
-- The extension does not replace or interfere with host-page content and does not inject duplicate UI.
-- Focused tests or documented manual test steps cover WYSIWYG formatting, color editing, note operations, task scheduling, background timing, reminder dismissal, and import/export.
+## 6. Countdown
+
+- The countdown has separate hour, minute, and second inputs.
+- The inputs default to zero.
+- The countdown supports start and reset.
+- Countdown state is persisted using timestamps.
+- The countdown continues through the background service worker when the workspace page
+  is not open.
+- When the countdown reaches zero, the background service worker sends an alert to the
+  active tab.
+- The active-tab alert is an alarm emoji overlay. Clicking it dismisses the overlay
+  and records dismissal for that countdown occurrence.
+- The extension popup displays the remaining countdown time.
+
+## 7. Tasks and calendar
+
+Each task can contain:
+
+- Title
+- Optional description
+- Color
+- Start date and time
+- End date and time
+- Status
+- Actual completion time when finished
+
+Task creation and editing:
+
+- Users can choose **Start now** or **Schedule later**.
+- A task must have an end date and end time.
+- Start and end times are entered as clock text with a separate AM/PM selector.
+- Start time defaults to the current local time when the new-task flow is opened.
+- The end time must be after the start time.
+- Tasks must begin on or after the current time when scheduled.
+- Tasks cannot cross local midnight.
+- Tasks with invalid dates, an end before the start, or a duration of one day or
+  longer are rejected with a status message.
+- Existing tasks can be opened from the calendar and edited.
+- A task can be finished manually from its task details.
+- A task can be deleted from its task details after confirmation.
+
+Calendar display:
+
+- The Calendar tab displays the current local day.
+- The calendar has a vertical time axis and 30-minute grid intervals.
+- The current time is shown with a current-time marker.
+- The timeline uses 2 pixels per minute, or 60 pixels per 30-minute interval.
+- Task positions and heights use exact minute values rather than rounding to grid
+  lines.
+- Tasks are clipped to the configured visible start and the end of the day for
+  display; clipping does not modify task data.
+- The calendar body is vertically scrollable.
+- The visible start defaults to 8:00 AM and can be changed with a time textbox and
+  AM/PM selector in the calendar header.
+- The visible end is fixed at 11:59 PM; there is no end-time textbox or draggable
+  boundary control.
+- If the visible start is 11:59 PM, the calendar body is omitted rather than showing
+  an invalid end-time error.
+
+Task timing and reminders:
+
+- Scheduled tasks use persisted timestamps and browser alarms.
+- A task remains active after its scheduled end until the user chooses an action.
+- When a scheduled end is reached, the active tab receives a reminder overlay with
+  **Finish** and **Extend** actions.
+- When a scheduled task starts, the active tab receives a reminder overlay with a
+  **Dismiss** action. Dismissing this start reminder removes the overlay without
+  changing the task's status or schedule.
+- Finish marks the task completed and records the actual end time.
+- Extend marks the task extended. An extended task continues to grow toward the
+  current time while the workspace is rendered.
+- Ending an extended task records its actual completion time.
+- Extended tasks cause later task times to be shifted and persisted to avoid overlap,
+  while preserving later task durations.
+- Tasks and their stored times remain persisted when the workspace is closed or
+  reloaded.
+
+## 8. Extension popup
+
+The popup currently provides:
+
+- Offline Workspace branding.
+- An enable/disable checkbox.
+- An **Open workspace** button.
+- A status section showing countdown remaining time.
+- A status section showing each non-completed task's title, start time, and scheduled
+  end time.
+- Extended-task scheduled end times are styled as late.
+- A hover/focus tooltip next to the enable checkbox explaining active-page alerts.
+
+The enabled setting is persisted. The popup does not include a configurable website
+field or a separate settings page.
+
+## 9. Background alerts and content overlays
+
+- The service worker schedules task start, task end, extended-task tick, and countdown
+  alarms.
+- Reminder overlays are sent only to the active tab in the last-focused browser
+  window.
+- Task overlays include the task title and action buttons.
+- Countdown overlays can be dismissed by clicking the alarm emoji.
+- The content script uses an isolated extension overlay container and does not replace
+  the host page's existing content.
+- The extension avoids creating duplicate overlay elements in the same page.
+
+## 10. Settings and appearance
+
+- The workspace includes a Settings dropdown beside the Import/Export dropdown.
+- Users can enter a background image URL.
+- Applying a URL stores it in workspace settings and applies it to the whole workspace.
+- The background image is centered, non-repeating, fixed, and scaled with `cover`.
+- Users can clear the saved background image.
+- Background-image status messages are displayed in the workspace status area.
+
+## 11. Import and export
+
+The Import/Export dropdown contains separate controls for:
+
+- Combined backup
+- Notes
+- Schedules/tasks
+- Settings
+- Timers
+
+Exports are JSON files. Imports read JSON files, update the corresponding stored
+category, and report invalid JSON or missing category data through the workspace
+status message.
+
+## 12. Persistence and live updates
+
+- Notes, tasks, timers, settings, recent fonts, text-box state, and calendar start
+  time are saved to `chrome.storage.local`.
+- The workspace listens for storage changes and refreshes when another extension
+  surface changes the shared state.
+- The open workspace refreshes stopwatch and countdown displays every second.
+- The calendar refreshes periodically while open.
+- Background alarms are recreated on installation, startup, and state changes.
+
+## 13. Current limitations
+
+The following are not current requirements because they are not implemented in the
+current extension:
+
+- Dragging calendar boundaries.
+- A user-editable calendar end time.
+- Cross-midnight tasks.
+- A cross-midnight divider.
+- Multiple simultaneous countdowns.
+- A configurable per-website workspace.
+- External synchronization or cloud storage.
+- Native browser notifications as a replacement for the active-tab overlay.
+- Merge-based import; imports update the selected category rather than presenting a
+  replace/merge choice.
+
+## Definition of done for the current implementation
+
+- The extension loads as Offline Workspace in Chrome or Edge desktop.
+- The popup can enable or disable the extension and open the bundled workspace.
+- Notes and text boxes can be created, edited, formatted, reordered, collapsed, and
+  deleted, with state persisted locally.
+- The calendar can create, edit, finish, extend, delete, and display same-day tasks.
+- Calendar tasks use exact times and a scrollable 30-minute grid.
+- Stopwatch, laps, and countdown operate and persist through workspace reloads.
+- Background alarms deliver task and countdown overlays to the active tab.
+- Background images can be applied and cleared.
+- Notes, tasks, settings, and timers can be imported and exported as JSON.
+- The extension does not intentionally rewrite host-page content outside its own
+  overlay.

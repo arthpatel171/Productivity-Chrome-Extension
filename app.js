@@ -1,9 +1,22 @@
+const FONT_OPTIONS = [
+  ['Arial', 'Arial, sans-serif'], ['Calibri', 'Calibri, sans-serif'], ['Cambria', 'Cambria, serif'],
+  ['Candara', 'Candara, sans-serif'], ['Comic Sans MS', '"Comic Sans MS", cursive'], ['Consolas', 'Consolas, monospace'],
+  ['Courier New', '"Courier New", monospace'], ['Georgia', 'Georgia, serif'], ['Helvetica', 'Helvetica, sans-serif'],
+  ['Impact', 'Impact, sans-serif'], ['Inter', 'Inter, sans-serif'], ['Lucida Console', '"Lucida Console", monospace'],
+  ['Lucida Sans', '"Lucida Sans", sans-serif'], ['Merriweather', 'Merriweather, serif'], ['Monaco', 'Monaco, monospace'],
+  ['Montserrat', 'Montserrat, sans-serif'], ['Nunito', 'Nunito, sans-serif'], ['Palatino', 'Palatino, serif'],
+  ['Roboto', 'Roboto, sans-serif'], ['Segoe UI', '"Segoe UI", sans-serif'], ['Tahoma', 'Tahoma, sans-serif'],
+  ['Times New Roman', '"Times New Roman", serif'], ['Trebuchet MS', '"Trebuchet MS", sans-serif'],
+  ['Verdana', 'Verdana, sans-serif'], ['Handlee', 'Handlee, cursive']
+];
+const STANDARD_COLORS = [['Dark Red', '#8b0000'], ['Red', '#dc2626'], ['Orange', '#f97316'], ['Yellow', '#facc15'], ['Light Green', '#86efac'], ['Green', '#16a34a'], ['Teal', '#14b8a6'], ['Blue', '#2563eb'], ['Dark Blue', '#123b66'], ['Purple (Violet)', '#8b5cf6']];
+const CALENDAR_PIXELS_PER_MINUTE = 2;
 const DEFAULT_STATE = {
-  notes: [{ id: crypto.randomUUID(), title: 'Welcome note', blocks: [{ id: crypto.randomUUID(), title: 'Ideas', html: '<p>Start writing here.</p>', collapsed: false, width: 100, height: 180 }] }],
-  tasks: [],
-  stopwatch: { startedAt: null, elapsed: 0, laps: [] },
-  countdown: { endsAt: null, remaining: 0 },
-  settings: { textColor: '#d7e3f4', highlightColor: '#123b66', enabled: true }
+  notes: [{ id: crypto.randomUUID(), title: 'Welcome note', blocks: [{ id: crypto.randomUUID(), title: 'Ideas', html: '<p>Start writing here.</p>', collapsed: false, width: 100, height: 180, fontFamily: 'Arial, sans-serif', customColors: [] }] }],
+  tasks: [], stopwatch: { startedAt: null, elapsed: 0, laps: [] },
+  countdown: { endsAt: null, remaining: 0, alarmActive: false, occurrence: null, dismissed: false },
+  settings: { textColor: '#d7e3f4', highlightColor: '#123b66', enabled: true },
+  calendar: { visibleStart: 8 * 60, visibleEnd: 1440 }
 };
 
 let state;
@@ -12,12 +25,12 @@ let activeEditor;
 let stopwatchInterval;
 let countdownInterval;
 let calendarInterval;
-let taskBeingEdited = null;
+let taskBeingEdited;
+let calendarScrollTop = 0;
 let saving = false;
-
-const clone = value => JSON.parse(JSON.stringify(value));
 const $ = selector => document.querySelector(selector);
 const now = () => Date.now();
+const clone = value => JSON.parse(JSON.stringify(value));
 
 async function loadState() {
   const stored = await chrome.storage.local.get('todoState');
@@ -25,223 +38,249 @@ async function loadState() {
   state.notes = Array.isArray(state.notes) && state.notes.length ? state.notes : clone(DEFAULT_STATE.notes);
   state.tasks = Array.isArray(state.tasks) ? state.tasks : [];
   state.settings = { ...clone(DEFAULT_STATE.settings), ...(state.settings || {}) };
+  applyBackgroundImage(state.settings.backgroundImageUrl);
+  state.calendar = { ...clone(DEFAULT_STATE.calendar), ...(state.calendar || {}) };
+  if (!stored.todoState?.calendar || (state.calendar.visibleStart === 0 && state.calendar.visibleEnd === 1440)) state.calendar = clone(DEFAULT_STATE.calendar);
+  $('#background-image-url').value = state.settings.backgroundImageUrl || '';
   activeNoteId = state.notes[0].id;
   renderAll();
   startClockLoops();
 }
-
 async function saveState(message) {
   saving = true;
   await chrome.storage.local.set({ todoState: state });
   saving = false;
   if (message) setStatus(message);
 }
-
-function setStatus(message) {
-  const status = $('#app-status');
-  if (status) status.textContent = message;
+function setStatus(message) { const status = $('#app-status'); if (status) status.textContent = message; }
+function applyBackgroundImage(value) {
+  const url = typeof value === 'string' ? value.trim() : '';
+  document.body.style.backgroundImage = url ? `url("${url.replaceAll('"', '%22')}")` : '';
+  document.body.style.backgroundRepeat = url ? 'no-repeat' : '';
+  document.body.style.backgroundSize = url ? 'cover' : '';
+  document.body.style.backgroundPosition = url ? 'center' : '';
+  document.body.style.backgroundAttachment = url ? 'fixed' : '';
 }
-
-function renderAll() {
-  renderNotes();
-  renderTasks();
-  renderLaps();
-  updateStopwatch();
-  updateCountdown();
-}
-
-function renderNotes() {
-  const list = $('#note-list');
-  const panel = $('#note-editor-panel');
-  list.replaceChildren();
-  state.notes.forEach(note => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = `note-list-item${note.id === activeNoteId ? ' is-active' : ''}`;
-    button.textContent = note.title || 'Untitled note';
-    button.addEventListener('click', () => { activeNoteId = note.id; renderNotes(); });
-    list.appendChild(button);
-  });
-  const note = state.notes.find(item => item.id === activeNoteId) || state.notes[0];
-  activeNoteId = note.id;
-  panel.replaceChildren();
-
-  const heading = document.createElement('div');
-  heading.className = 'note-heading';
-  const title = document.createElement('input');
-  title.className = 'note-title';
-  title.value = note.title;
-  title.setAttribute('aria-label', 'Note title');
-  title.addEventListener('input', () => { note.title = title.value; renderNotesListOnly(); saveState(); });
-  const deleteNote = button('Delete note', 'danger');
-  deleteNote.addEventListener('click', () => {
-    if (state.notes.length === 1 || confirm('Delete this note?')) {
-      state.notes = state.notes.filter(item => item.id !== note.id);
-      activeNoteId = state.notes[0]?.id;
-      saveState('Note deleted'); renderNotes();
-    }
-  });
-  heading.append(title, deleteNote);
-  panel.appendChild(heading);
-
-  note.blocks.forEach((block, index) => panel.appendChild(createBlock(note, block, index)));
-  const addBlock = button('+ Add text box', 'primary');
-  addBlock.addEventListener('click', () => { note.blocks.push({ id: crypto.randomUUID(), title: 'New text box', html: '', collapsed: false, width: 100, height: 180 }); saveState(); renderNotes(); });
-  panel.appendChild(addBlock);
-}
-
-function renderNotesListOnly() {
-  const list = $('#note-list');
-  [...list.children].forEach((item, index) => { item.textContent = state.notes[index].title || 'Untitled note'; });
-}
-
-function createBlock(note, block, index) {
-  const article = document.createElement('article');
-  article.className = `editor-card${block.collapsed ? ' is-collapsed' : ''}`;
-  article.style.width = `${block.width || 100}%`;
-  const toolbar = document.createElement('div');
-  toolbar.className = 'editor-toolbar';
-  const drag = button('↕', 'icon'); drag.title = 'Move text box'; drag.setAttribute('aria-label', 'Move text box');
-  drag.draggable = true;
-  drag.addEventListener('dragstart', event => event.dataTransfer.setData('text/plain', String(index)));
-  article.addEventListener('dragover', event => event.preventDefault());
-  article.addEventListener('drop', event => {
-    event.preventDefault();
-    const from = Number(event.dataTransfer.getData('text/plain'));
-    if (Number.isInteger(from) && from !== index) { const [moved] = note.blocks.splice(from, 1); note.blocks.splice(index, 0, moved); saveState(); renderNotes(); }
-  });
-  const blockTitle = document.createElement('input'); blockTitle.className = 'block-title'; blockTitle.value = block.title || 'Text box'; blockTitle.setAttribute('aria-label', 'Text box title');
-  blockTitle.addEventListener('input', () => { block.title = blockTitle.value; saveState(); });
-  const collapse = button(block.collapsed ? 'Expand' : 'Collapse', 'icon'); collapse.setAttribute('aria-label', collapse.textContent + ' text box');
-  collapse.addEventListener('click', () => { block.collapsed = !block.collapsed; saveState(); renderNotes(); });
-  const remove = button('Delete', 'danger'); remove.addEventListener('click', () => { note.blocks = note.blocks.filter(item => item.id !== block.id); saveState(); renderNotes(); });
-  const fontFamily = document.createElement('select'); fontFamily.setAttribute('aria-label', 'Font family'); [['Handlee', 'Handlee, cursive'], ['Arial', 'Arial, sans-serif'], ['Georgia', 'Georgia, serif'], ['Monospace', 'monospace']].forEach(([label, value]) => { const option = new Option(label, value); option.selected = (block.fontFamily || 'Handlee, cursive') === value; fontFamily.appendChild(option); }); fontFamily.addEventListener('change', () => { if (activeEditor) { activeEditor.focus(); document.execCommand('fontName', false, fontFamily.value); activeEditor.dispatchEvent(new Event('input')); } });
-  const fontSize = document.createElement('select'); fontSize.setAttribute('aria-label', 'Font size'); [['Small', '2'], ['Normal', '3'], ['Large', '5'], ['Huge', '7']].forEach(([label, value]) => fontSize.appendChild(new Option(label, value))); fontSize.addEventListener('change', () => { if (activeEditor) { activeEditor.focus(); document.execCommand('fontSize', false, fontSize.value); activeEditor.dispatchEvent(new Event('input')); } });
-  toolbar.append(drag, blockTitle, formatButton('B', 'Bold', 'bold'), formatButton('I', 'Italic', 'italic'), formatButton('U', 'Underline', 'underline'), fontFamily, fontSize, formatButton('H', 'Highlight', 'toggleHighlight', state.settings.highlightColor), colorPicker(block), collapse, remove);
-  const editor = document.createElement('div'); editor.className = 'wysiwyg'; editor.contentEditable = 'true'; editor.innerHTML = block.html || ''; editor.style.fontFamily = 'Handlee, cursive'; editor.dataset.placeholder = 'Start typing...';
-  editor.addEventListener('focus', () => { activeEditor = editor; });
-  editor.addEventListener('input', () => { applyTypingShortcut(editor); block.html = editor.innerHTML; block.fontFamily = fontFamily.value; saveState(); });
-  editor.addEventListener('blur', () => { block.html = editor.innerHTML; saveState(); });
-  if (block.collapsed) editor.hidden = true;
-  editor.style.fontFamily = block.fontFamily || 'Handlee, cursive';
-  article.append(toolbar, editor);
-  return article;
-}
-
 function button(label, className = '') { const item = document.createElement('button'); item.type = 'button'; item.textContent = label; item.className = className; return item; }
-function formatButton(label, title, command, value = null) { const item = button(label, 'format-button'); item.title = title; item.setAttribute('aria-label', title); item.addEventListener('mousedown', event => event.preventDefault()); item.addEventListener('click', () => { if (!activeEditor) return; activeEditor.focus(); if (command === 'toggleHighlight') toggleHighlight(value); else document.execCommand(command, false, value); activeEditor.dispatchEvent(new Event('input')); }); return item; }
-function toggleHighlight(color) { const current = document.queryCommandValue('hiliteColor') || document.queryCommandValue('backColor'); const isHighlighted = current && current !== 'transparent' && current !== 'rgba(0, 0, 0, 0)' && current !== 'rgb(255, 255, 255)'; document.execCommand('hiliteColor', false, isHighlighted ? 'transparent' : color); }
-function colorPicker(block) { const input = document.createElement('input'); input.type = 'color'; input.value = block.color || state.settings.textColor; input.title = 'Text color'; input.setAttribute('aria-label', 'Text color'); input.addEventListener('input', () => { block.color = input.value; if (activeEditor) { activeEditor.focus(); document.execCommand('foreColor', false, input.value); activeEditor.dispatchEvent(new Event('input')); } }); return input; }
-function applyTypingShortcut(editor) { const selection = window.getSelection(); if (!selection.rangeCount || !editor.contains(selection.anchorNode)) return; const text = selection.anchorNode.textContent || ''; const beforeCursor = text.slice(0, selection.anchorOffset); if (!/(^|\n)# $/.test(beforeCursor)) return; const range = selection.getRangeAt(0); range.setStart(selection.anchorNode, selection.anchorOffset - 2); range.deleteContents(); selection.removeAllRanges(); selection.addRange(range); document.execCommand('formatBlock', false, 'h1'); }
+function escapeHtml(value) { const item = document.createElement('div'); item.textContent = value || ''; return item.innerHTML; }
 
+function renderAll() { renderNotes(); renderTasks(); renderLaps(); updateStopwatch(); updateCountdown(); }
+function renderNotes() {
+  const list = $('#note-list'); const panel = $('#note-editor-panel'); list.replaceChildren();
+  state.notes.forEach(note => { const item = button(note.title || 'Untitled note', `note-list-item${note.id === activeNoteId ? ' is-active' : ''}`); item.addEventListener('click', () => { activeNoteId = note.id; renderNotes(); }); list.appendChild(item); });
+  const note = state.notes.find(item => item.id === activeNoteId) || state.notes[0]; activeNoteId = note.id; panel.replaceChildren();
+  const heading = document.createElement('div'); heading.className = 'note-heading';
+  const title = document.createElement('input'); title.className = 'note-title'; title.value = note.title; title.setAttribute('aria-label', 'Note title'); title.addEventListener('input', () => { note.title = title.value; renderNotesListOnly(); saveState(); });
+  const remove = button('Delete note', 'danger'); remove.addEventListener('click', () => { if (state.notes.length === 1 || confirm('Delete this note?')) { state.notes = state.notes.filter(item => item.id !== note.id); activeNoteId = state.notes[0].id; saveState('Note deleted'); renderNotes(); } });
+  heading.append(title, remove); panel.appendChild(heading);
+  note.blocks.forEach((block, index) => panel.appendChild(createBlock(note, block, index)));
+  const add = button('+ Add text box', 'primary'); add.addEventListener('click', () => { note.blocks.push(newBlock()); saveState(); renderNotes(); }); panel.appendChild(add);
+}
+function newBlock() { return { id: crypto.randomUUID(), title: 'Text box', html: '', collapsed: false, width: 100, height: 180, fontFamily: 'Arial, sans-serif', customColors: [] }; }
+function renderNotesListOnly() { [...$('#note-list').children].forEach((item, index) => { item.textContent = state.notes[index].title || 'Untitled note'; }); }
+function createBlock(note, block, index) {
+  const article = document.createElement('article'); article.className = `editor-card${block.collapsed ? ' is-collapsed' : ''}`; article.style.width = `${block.width || 100}%`;
+  const toolbar = document.createElement('div'); toolbar.className = 'editor-toolbar';
+  const drag = button('↕', 'icon'); drag.title = 'Move text box'; drag.setAttribute('aria-label', 'Move text box'); drag.draggable = true; drag.addEventListener('dragstart', event => event.dataTransfer.setData('text/plain', String(index)));
+  article.addEventListener('dragover', event => event.preventDefault()); article.addEventListener('drop', event => { event.preventDefault(); const from = Number(event.dataTransfer.getData('text/plain')); if (Number.isInteger(from) && from !== index) { const [moved] = note.blocks.splice(from, 1); note.blocks.splice(index, 0, moved); saveState(); renderNotes(); } });
+  const blockTitle = document.createElement('input'); blockTitle.className = 'block-title'; blockTitle.value = block.title || 'Text box'; blockTitle.setAttribute('aria-label', 'Text box title'); blockTitle.addEventListener('input', () => { block.title = blockTitle.value; saveState(); });
+  const fontFamily = document.createElement('select'); fontFamily.className = 'font-family'; fontFamily.setAttribute('aria-label', 'Font family'); populateFonts(fontFamily, block);
+  fontFamily.addEventListener('change', () => { rememberFont(fontFamily.value); applyCommand('fontName', fontFamily.value); block.fontFamily = fontFamily.value; editor.style.fontFamily = fontFamily.value; saveState(); });
+  const fontSize = document.createElement('select'); fontSize.setAttribute('aria-label', 'Font size'); [['Small', '2'], ['Normal', '3'], ['Large', '5'], ['Huge', '7']].forEach(([label, value]) => fontSize.appendChild(new Option(label, value)));
+  fontSize.addEventListener('change', () => applyCommand('fontSize', fontSize.value));
+  const color = colorPicker(block, 'Text color', 'foreColor');
+  const highlight = colorPicker(block, 'Highlight color', 'hiliteColor', state.settings.highlightColor);
+  const collapse = button(block.collapsed ? 'Expand' : 'Collapse', 'icon'); collapse.addEventListener('click', () => { block.collapsed = !block.collapsed; saveState(); renderNotes(); });
+  const remove = button('Delete', 'danger'); remove.addEventListener('click', () => { note.blocks = note.blocks.filter(item => item.id !== block.id); saveState(); renderNotes(); });
+  toolbar.append(drag, blockTitle, formatButton('B', 'Bold', 'bold'), formatButton('I', 'Italic', 'italic'), formatButton('U', 'Underline', 'underline'), formatButton('•', 'Bulleted list', 'insertUnorderedList'), formatButton('1.', 'Numbered list', 'insertOrderedList'), fontFamily, fontSize, color, highlight, collapse, remove);
+  const editor = document.createElement('div'); editor.className = 'wysiwyg'; editor.contentEditable = 'true'; editor.innerHTML = block.html || ''; editor.dataset.placeholder = 'Start typing...'; editor.style.fontFamily = block.fontFamily || 'Arial, sans-serif'; editor.style.minHeight = `${block.height || 180}px`;
+  editor.addEventListener('focus', () => { activeEditor = editor; });
+  editor.addEventListener('keyup', () => syncToolbar(editor, fontFamily)); editor.addEventListener('mouseup', () => syncToolbar(editor, fontFamily));
+  editor.addEventListener('input', () => { applyTypingShortcut(editor); block.html = editor.innerHTML; block.fontFamily = window.getComputedStyle(editor).fontFamily || block.fontFamily; block.height = editor.scrollHeight; block.customColors = (block.customColors || []).filter(colorValue => block.html.toLowerCase().includes(colorValue.toLowerCase())); saveState(); });
+  editor.addEventListener('blur', () => { block.html = editor.innerHTML; activeEditor = null; saveState(); });
+  if (block.collapsed) editor.hidden = true; article.append(toolbar, editor); return article;
+}
+function fontEntries(block) {
+  const recent = Array.isArray(state.settings.recentFonts) ? state.settings.recentFonts : [];
+  const values = [...recent, block.fontFamily || 'Arial, sans-serif', ...FONT_OPTIONS.map(item => item[1])].filter((value, index, list) => list.indexOf(value) === index);
+  return values.map(value => FONT_OPTIONS.find(item => item[1] === value) || [value.split(',')[0].replaceAll('"', ''), value]);
+}
+function populateFonts(select, block) { select.replaceChildren(); fontEntries(block).forEach(([label, value], index) => { const option = new Option(label, value); option.style.fontFamily = value; option.selected = value === (block.fontFamily || 'Arial, sans-serif'); if (index === 0 && state.settings.recentFonts?.length) option.textContent = `Recently used: ${label}`; select.appendChild(option); }); }
+function rememberFont(value) { state.settings.recentFonts = [value, ...(state.settings.recentFonts || []).filter(item => item !== value)].slice(0, 8); }
+function applyCommand(command, value = null) { if (!activeEditor) return; activeEditor.focus(); document.execCommand(command, false, value); activeEditor.dispatchEvent(new Event('input')); }
+function formatButton(label, title, command) { const item = button(label, 'format-button'); item.title = title; item.setAttribute('aria-label', title); item.addEventListener('mousedown', event => event.preventDefault()); item.addEventListener('click', () => applyCommand(command)); return item; }
+function colorPicker(block, title, command, fallback = null) { const input = document.createElement('input'); input.type = 'color'; input.title = title; input.setAttribute('aria-label', title); input.value = fallback || block.color || state.settings.textColor; input.addEventListener('input', () => { block.color = input.value; block.customColors = [...new Set([...(block.customColors || []), input.value])]; applyCommand(command, input.value); saveState(); }); return input; }
+function syncToolbar(editor, select) { const family = document.queryCommandValue('fontName'); const option = [...select.options].find(item => item.value.toLowerCase().replaceAll('"', '') === family.toLowerCase().replaceAll('"', '')); if (option) select.value = option.value; }
+function applyTypingShortcut(editor) {
+  const selection = window.getSelection(); if (!selection.rangeCount || !editor.contains(selection.anchorNode)) return;
+  const text = selection.anchorNode.textContent || ''; const before = text.slice(0, selection.anchorOffset); const match = before.match(/(?:^|\n)(# |[*-] |1[.)] )$/); if (!match) return;
+  const range = selection.getRangeAt(0); range.setStart(selection.anchorNode, selection.anchorOffset - match[1].length); range.deleteContents(); selection.removeAllRanges(); selection.addRange(range);
+  if (match[1] === '# ') document.execCommand('formatBlock', false, 'h1'); else document.execCommand(match[1][0] === '1' ? 'insertOrderedList' : 'insertUnorderedList');
+}
+
+function dayBounds() { const start = new Date(); start.setHours(0, 0, 0, 0); return { start, end: new Date(start.getTime() + 86400000) }; }
+function taskDisplayEnd(task) { return task.status === 'extended' ? Math.min(now(), new Date(task.start).setHours(23, 59, 59, 999)) : new Date(task.end).getTime(); }
 function renderTasks() {
-  const calendar = $('#day-calendar'); calendar.replaceChildren();
-  const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0); const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
-  const header = document.createElement('div'); header.className = 'calendar-day-header'; header.innerHTML = `<strong>${dayStart.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</strong><span>Today</span>`; calendar.appendChild(header);
+  syncExtendedTasks(); const calendar = $('#day-calendar'); const existingBody = calendar.querySelector('.calendar-day-body'); if (existingBody) calendarScrollTop = existingBody.scrollTop; calendar.replaceChildren(); const day = dayBounds(); const startMinutes = Math.max(0, Math.min(1439, state.calendar.visibleStart ?? 8 * 60)); const endMinutes = 1440; const range = endMinutes - startMinutes;
+  const header = document.createElement('div'); header.className = 'calendar-day-header';
+  const dayLabel = document.createElement('strong'); dayLabel.textContent = day.start.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+  header.append(dayLabel, createVisibleTimeEditor(startMinutes)); calendar.appendChild(header);
+  if (startMinutes >= 1439) return;
   const body = document.createElement('div'); body.className = 'calendar-day-body';
+  const timeline = document.createElement('div'); timeline.className = 'calendar-timeline'; timeline.style.height = `${range * CALENDAR_PIXELS_PER_MINUTE}px`;
   const axis = document.createElement('div'); axis.className = 'calendar-axis';
-  for (let minutes = 0; minutes < 1440; minutes += 30) { const label = document.createElement('span'); label.textContent = minutes % 60 === 0 ? formatClock(new Date(dayStart.getTime() + minutes * 60000)) : ''; label.style.top = `${(minutes / 1440) * 100}%`; axis.appendChild(label); }
-  const grid = document.createElement('div'); grid.className = 'calendar-grid'; for (let index = 0; index < 48; index += 1) { const line = document.createElement('i'); line.style.top = `${(index / 48) * 100}%`; grid.appendChild(line); }
+  for (let minute = startMinutes; minute <= endMinutes; minute += 30) { const label = document.createElement('span'); label.textContent = minute === 1440 ? '11:59 PM' : formatMinutes(minute); label.style.top = `${calendarMinuteOffset(minute, startMinutes)}px`; axis.appendChild(label); }
+  const grid = document.createElement('div'); grid.className = 'calendar-grid'; for (let minute = startMinutes; minute <= endMinutes; minute += 30) { const line = document.createElement('i'); line.style.top = `${calendarMinuteOffset(minute, startMinutes)}px`; grid.appendChild(line); }
   const events = document.createElement('div'); events.className = 'calendar-events';
-  state.tasks.filter(task => isValidDate(task.start) && isValidDate(task.end) && new Date(task.start) < dayEnd && new Date(task.end) > dayStart).forEach(task => {
-    const start = Math.max(dayStart.getTime(), new Date(task.start).getTime()); const end = Math.min(dayEnd.getTime(), new Date(task.end).getTime());
-    const event = document.createElement('article'); event.className = `calendar-event task-${task.status || 'scheduled'}`; event.style.setProperty('--task-color', task.color || '#234f7d'); event.style.top = `${((start - dayStart) / 86400000) * 100}%`; event.style.height = `${Math.max(2, ((end - start) / 86400000) * 100)}%`; event.innerHTML = `<strong>${escapeHtml(task.title)}</strong><span>${formatClock(new Date(start))} - ${formatClock(new Date(end))}</span>`;
-    event.title = task.description || task.title; event.tabIndex = 0; event.addEventListener('click', () => editTask(task)); event.addEventListener('keydown', keyboardEvent => { if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') { keyboardEvent.preventDefault(); editTask(task); } }); events.appendChild(event);
+  state.tasks.filter(task => isValidDate(task.start) && isValidDate(task.end) && sameLocalDay(new Date(task.start), new Date(task.end)) && sameLocalDay(new Date(task.start), day.start) && new Date(task.start) < day.end && taskDisplayEnd(task) > day.start.getTime() + startMinutes * 60000 && new Date(task.start).getTime() < day.start.getTime() + endMinutes * 60000).forEach(task => renderTaskEvent(events, task, day.start, startMinutes, endMinutes));
+  const marker = document.createElement('b'); marker.className = 'current-time-marker'; marker.style.top = `${calendarMinuteOffset((now() - day.start.getTime()) / 60000, startMinutes)}px`;
+  timeline.append(axis, grid, events, marker); body.appendChild(timeline); calendar.appendChild(body); body.scrollTop = calendarScrollTop; body.addEventListener('scroll', () => { calendarScrollTop = body.scrollTop; });
+}
+function calendarMinuteOffset(minute, visibleStart) { return Math.max(0, minute - visibleStart) * CALENDAR_PIXELS_PER_MINUTE; }
+function sameLocalDay(first, second) { return first.getFullYear() === second.getFullYear() && first.getMonth() === second.getMonth() && first.getDate() === second.getDate(); }
+function createVisibleTimeEditor(startMinutes) {
+  const editor = document.createElement('div');
+  editor.className = 'visible-time-editor';
+  editor.setAttribute('aria-label', 'Calendar visible time range');
+  const label = document.createElement('span');
+  label.className = 'visible-time-label';
+  label.textContent = 'Day start';
+  const start = createClockEditor('Calendar start time', startMinutes);
+  const apply = () => {
+    const nextStart = parseClockEditor(start);
+    if (nextStart === null) {
+      setStatus('Enter each calendar time in h:mm format.');
+      return;
+    }
+    state.calendar.visibleStart = nextStart;
+    state.calendar.visibleEnd = 1440;
+    saveState();
+    renderTasks();
+  };
+  [start.input, start.period].forEach(control => {
+    control.addEventListener('change', apply);
+    control.addEventListener('keydown', event => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        apply();
+      }
+    });
   });
-  const marker = document.createElement('b'); marker.className = 'current-time-marker'; marker.style.top = `${((Date.now() - dayStart.getTime()) / 86400000) * 100}%`; body.append(axis, grid, events, marker); calendar.appendChild(body);
+  editor.append(label, start.input, start.period);
+  return editor;
 }
-function completeTask(task) { task.status = 'completed'; task.completedAt = new Date().toISOString(); saveState('Task completed'); renderTasks(); }
-function delayTask(task) { const start = prompt('Start time (YYYY-MM-DDTHH:mm)', localInputValue(new Date(task.start))); if (!start) return; const end = prompt('End time (YYYY-MM-DDTHH:mm)', localInputValue(new Date(task.end))); if (!end) return; const startIso = safeIsoDate(start); const endIso = safeIsoDate(end); if (!startIso || !endIso || new Date(endIso) <= new Date(startIso)) return; task.start = startIso; task.end = endIso; task.status = 'delayed'; saveState('Task delayed'); renderTasks(); }
+function createClockEditor(label, minutes) {
+  const hour = Math.floor(minutes / 60) % 12 || 12;
+  const minute = minutes % 60;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.inputMode = 'numeric';
+  input.className = 'visible-time-input';
+  input.value = `${hour}:${String(minute).padStart(2, '0')}`;
+  input.setAttribute('aria-label', label);
+  const period = document.createElement('select');
+  period.className = 'visible-time-period';
+  period.setAttribute('aria-label', `${label} AM or PM`);
+  ['AM', 'PM'].forEach(value => period.appendChild(new Option(value, value)));
+  period.value = Math.floor(minutes / 60) >= 12 ? 'PM' : 'AM';
+  return { input, period };
+}
+function parseClockEditor(editor) {
+  const match = editor.input.value.trim().match(/^(\d{1,2}):([0-5]\d)$/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  if (hour < 1 || hour > 12) return null;
+  return ((hour % 12) + (editor.period.value === 'PM' ? 12 : 0)) * 60 + Number(match[2]);
+}
+function renderTaskEvent(events, task, dayStart, visibleStart, visibleEnd) {
+  const start = Math.max(new Date(task.start).getTime(), dayStart.getTime() + visibleStart * 60000); const end = Math.min(taskDisplayEnd(task), dayStart.getTime() + visibleEnd * 60000); if (end <= start) return;
+  const event = document.createElement('article'); event.className = `calendar-event task-${task.status || 'scheduled'}${task.status === 'extended' ? ' is-extended' : ''}`; event.style.setProperty('--task-color', task.color || '#234f7d'); event.style.top = `${calendarMinuteOffset((start - dayStart.getTime()) / 60000, visibleStart)}px`; event.style.height = `${(end - start) / 60000 * CALENDAR_PIXELS_PER_MINUTE}px`; event.innerHTML = `<strong>${escapeHtml(task.title)}</strong><span>${formatClock(new Date(start))} - ${formatClock(new Date(end))}</span>`; event.title = task.description || task.title; event.tabIndex = 0; event.addEventListener('click', () => editTask(task)); event.addEventListener('keydown', keyboardEvent => { if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') { keyboardEvent.preventDefault(); editTask(task); } }); events.appendChild(event);
+}
+function syncExtendedTasks() {
+  const current = now(); let changed = false;
+  state.tasks.filter(task => task.status === 'extended').sort((a, b) => new Date(a.end) - new Date(b.end)).forEach(extended => {
+    const taskDayEnd = new Date(extended.start); taskDayEnd.setHours(23, 59, 59, 999);
+    if (current >= taskDayEnd.getTime()) { extended.status = 'completed'; extended.actualEnd = taskDayEnd.toISOString(); extended.completedAt = extended.actualEnd; changed = true; return; }
+    const extensionEnd = current; const base = new Date(extended.end).getTime();
+    state.tasks.filter(task => task.id !== extended.id && task.status !== 'completed' && new Date(task.start).getTime() >= base).forEach(task => {
+      const duration = new Date(task.end).getTime() - new Date(task.start).getTime(); const desiredStart = new Date(task.originalStart || task.start).getTime() + Math.max(0, extensionEnd - base);
+      if (new Date(task.start).getTime() !== desiredStart) { task.originalStart = task.originalStart || task.start; task.originalEnd = task.originalEnd || task.end; task.start = new Date(desiredStart).toISOString(); task.end = new Date(desiredStart + duration).toISOString(); changed = true; }
+    });
+  });
+  if (changed) saveState();
+}
 function editTask(task) {
-  const form = $('#task-form');
-  taskBeingEdited = task;
-  form.hidden = false;
-  form.elements.title.value = task.title || '';
-  form.elements.description.value = task.description || '';
-  form.elements.color.value = task.color || '#2f6fae';
-  form.elements.startDate.value = localInputValue(new Date(task.start)).slice(0, 10);
-  form.elements.endDate.value = localInputValue(new Date(task.end)).slice(0, 10);
-  setTimeFields(form, 'start', new Date(task.start));
-  setTimeFields(form, 'end', new Date(task.end));
-  form.closest('.view').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  taskBeingEdited = task; const form = $('#task-form'); form.hidden = false; form.elements.title.value = task.title || ''; form.elements.description.value = task.description || ''; form.elements.color.value = task.color || '#2f6fae'; form.elements.startDate.value = localInputValue(new Date(task.start)).slice(0, 10); form.elements.endDate.value = localInputValue(new Date(task.end)).slice(0, 10); setTimeFields(form, 'start', new Date(task.start)); setTimeFields(form, 'end', new Date(task.end));
+  $('#task-meta').textContent = task.actualEnd ? `Scheduled: ${formatDate(new Date(task.end))} · Actual end: ${formatDate(new Date(task.actualEnd))}` : `Scheduled: ${formatDate(new Date(task.start))} - ${formatDate(new Date(task.end))}`;
+  const actions = form.querySelector('.form-actions'); actions.querySelectorAll('.task-action').forEach(item => item.remove()); if (task.status !== 'completed') { const end = button(task.status === 'extended' ? 'End task' : 'Finish task', task.status === 'extended' ? 'danger task-action' : 'success task-action'); end.addEventListener('click', () => finishTask(task)); actions.prepend(end); } const remove = button('Delete task', 'danger task-action'); remove.addEventListener('click', () => deleteTask(task)); actions.prepend(remove); document.querySelector('[data-view="calendar-view"]').click(); window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+function finishTask(task) { task.status = 'completed'; task.completedAt = new Date().toISOString(); task.actualEnd = task.completedAt; saveState('Task ended'); renderTasks(); editTask(task); }
+function deleteTask(task) { if (!confirm(`Delete "${task.title}"?`)) return; state.tasks = state.tasks.filter(item => item.id !== task.id); taskBeingEdited = null; $('#task-form').hidden = true; saveState('Task deleted'); renderTasks(); }
+function formatMinutes(minutes) { const dayOffset = Math.floor(minutes / 1440); const value = minutes % 1440; const hour = Math.floor(value / 60); const minute = value % 60; const suffix = hour >= 12 ? 'PM' : 'AM'; return `${hour % 12 || 12}:${String(minute).padStart(2, '0')} ${suffix}${dayOffset ? ` (+${dayOffset}d)` : ''}`; }
 function formatDate(date) { return date.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }); }
 function formatClock(date) { return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
 function isValidDate(value) { const date = value instanceof Date ? value : new Date(value); return !Number.isNaN(date.getTime()); }
-function safeIsoDate(value) { if (!value) return ''; const date = new Date(value); if (!isValidDate(date)) return ''; try { return date.toISOString(); } catch { return ''; } }
-function localInputValue(date) { if (!isValidDate(date)) return ''; const offset = date.getTimezoneOffset() * 60000; const localDate = new Date(date.getTime() - offset); return isValidDate(localDate) ? localDate.toISOString().slice(0, 16) : ''; }
-function setTimeFields(form, prefix, date) {
-  const value = localInputValue(date);
-  const [hourText, minute] = value.slice(11).split(':');
-  const hour = Number(hourText);
-  form.elements[`${prefix}Time`].value = `${hour % 12 || 12}:${minute}`;
-  form.elements[`${prefix}Period`].value = hour >= 12 ? 'PM' : 'AM';
-}
-function parseDateTime(dateValue, timeValue, period) {
-  const match = String(timeValue).trim().match(/^(\d{1,2}):([0-5]\d)$/);
-  if (!dateValue || !match) return null;
-  const hour = Number(match[1]);
-  if (hour < 1 || hour > 12) return null;
-  const date = new Date(`${dateValue}T${String((hour % 12) + (period === 'PM' ? 12 : 0)).padStart(2, '0')}:${match[2]}`);
-  return isValidDate(date) ? date : null;
-}
-function escapeHtml(value) { const item = document.createElement('div'); item.textContent = value; return item.innerHTML; }
+function localInputValue(date) { if (!isValidDate(date)) return ''; const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 16); }
+function setTimeFields(form, prefix, date) { const value = localInputValue(date); const [hourText, minute] = value.slice(11).split(':'); const hour = Number(hourText); form.elements[`${prefix}Time`].value = `${hour % 12 || 12}:${minute}`; form.elements[`${prefix}Period`].value = hour >= 12 ? 'PM' : 'AM'; }
+function parseDateTime(dateValue, timeValue, period) { const match = String(timeValue).trim().match(/^(\d{1,2}):([0-5]\d)$/); if (!dateValue || !match || Number(match[1]) < 1 || Number(match[1]) > 12) return null; const date = new Date(`${dateValue}T${String((Number(match[1]) % 12) + (period === 'PM' ? 12 : 0)).padStart(2, '0')}:${match[2]}`); return isValidDate(date) ? date : null; }
+function overlaps(start, end, excludeId = null) { return state.tasks.some(task => task.id !== excludeId && task.status !== 'completed' && new Date(task.start) < end && new Date(task.end) > start); }
 
 function renderLaps() { $('#lap-list').replaceChildren(...state.stopwatch.laps.map((lap, index) => { const item = document.createElement('label'); item.className = 'lap-row'; item.innerHTML = `<span>Lap ${index + 1} · ${formatDuration(lap.elapsed)}</span>`; const input = document.createElement('input'); input.placeholder = 'Description'; input.value = lap.description || ''; input.addEventListener('input', () => { lap.description = input.value; saveState(); }); item.appendChild(input); return item; })); }
-function formatDuration(milliseconds) { const seconds = Math.floor(milliseconds / 1000); return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60].map(value => String(value).padStart(2, '0')).join(':'); }
+function formatDuration(milliseconds) { const seconds = Math.max(0, Math.floor(milliseconds / 1000)); return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60].map(value => String(value).padStart(2, '0')).join(':'); }
 function updateStopwatch() { const elapsed = state.stopwatch.elapsed + (state.stopwatch.startedAt ? now() - state.stopwatch.startedAt : 0); $('#stopwatch-display').textContent = formatDuration(elapsed); }
 function updateCountdown() { const remaining = state.countdown.endsAt ? Math.max(0, state.countdown.endsAt - now()) : state.countdown.remaining; $('#countdown-display').textContent = formatDuration(remaining).slice(3); }
 function startClockLoops() { clearInterval(stopwatchInterval); clearInterval(countdownInterval); clearInterval(calendarInterval); stopwatchInterval = setInterval(updateStopwatch, 1000); countdownInterval = setInterval(updateCountdown, 1000); calendarInterval = setInterval(renderTasks, 30000); }
 
 function wireEvents() {
   document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => { document.querySelectorAll('.tab').forEach(item => item.classList.toggle('is-active', item === tab)); document.querySelectorAll('.view').forEach(view => view.classList.toggle('is-visible', view.id === tab.dataset.view)); }));
-  $('#new-note').addEventListener('click', () => { const note = { id: crypto.randomUUID(), title: 'New note', blocks: [{ id: crypto.randomUUID(), title: 'Text box', html: '', collapsed: false, width: 100, height: 180 }] }; state.notes.push(note); activeNoteId = note.id; saveState(); renderNotes(); });
-  $('#new-task').addEventListener('click', () => { taskBeingEdited = null; const form = $('#task-form'); form.reset(); form.hidden = false; const start = new Date(now() + 3600000); const end = new Date(now() + 7200000); form.elements.startDate.value = localInputValue(start).slice(0, 10); form.elements.endDate.value = localInputValue(end).slice(0, 10); setTimeFields(form, 'start', start); setTimeFields(form, 'end', end); });
+  $('#new-note').addEventListener('click', () => { const note = { id: crypto.randomUUID(), title: 'New note', blocks: [newBlock()] }; state.notes.push(note); activeNoteId = note.id; saveState(); renderNotes(); });
+  $('#new-task').addEventListener('click', () => { taskBeingEdited = null; const form = $('#task-form'); form.reset(); form.hidden = false; $('#task-meta').textContent = ''; const start = new Date(); form.elements.startDate.value = localInputValue(start).slice(0, 10); form.elements.endDate.value = ''; setTimeFields(form, 'start', start); form.elements.endTime.value = ''; form.querySelector('.form-actions').querySelectorAll('.task-action').forEach(item => item.remove()); window.scrollTo({ top: 0, behavior: 'smooth' }); });
   $('#cancel-task').addEventListener('click', () => { taskBeingEdited = null; $('#task-form').hidden = true; });
   $('#task-form').addEventListener('submit', event => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const start = form.elements.startMode.value === 'now' && !taskBeingEdited ? new Date() : parseDateTime(form.elements.startDate.value, form.elements.startTime.value, form.elements.startPeriod.value);
-    const end = parseDateTime(form.elements.endDate.value, form.elements.endTime.value, form.elements.endPeriod.value);
-    if (!start || !end || end < start) { setStatus('End time cannot be before the start time.'); return; }
-    if (taskBeingEdited) {
-      Object.assign(taskBeingEdited, { title: form.elements.title.value, description: form.elements.description.value, color: form.elements.color.value, start: start.toISOString(), end: end.toISOString() });
-      saveState('Task details saved');
-    } else {
-      state.tasks.push({ id: crypto.randomUUID(), title: form.elements.title.value, description: form.elements.description.value, color: form.elements.color.value, start: start.toISOString(), end: end.toISOString(), status: form.elements.startMode.value === 'now' ? 'active' : 'scheduled', completedAt: null });
-      saveState('Task saved');
-    }
-    taskBeingEdited = null; form.reset(); form.hidden = true; renderTasks();
+    event.preventDefault(); const form = event.currentTarget; const start = form.elements.startMode.value === 'now' && !taskBeingEdited ? new Date() : parseDateTime(form.elements.startDate.value, form.elements.startTime.value, form.elements.startPeriod.value); const end = parseDateTime(form.elements.endDate.value, form.elements.endTime.value, form.elements.endPeriod.value);
+    if (!start || !end) return setStatus('Enter valid start and end date/time values.'); if (start < new Date() && !taskBeingEdited) return setStatus('A new task must start now or in the future.'); if (!sameLocalDay(start, end)) return setStatus('Tasks must start and end on the same day.'); if (end <= start) return setStatus('End time must be after the start time.'); if (end.getTime() - start.getTime() >= 86400000) return setStatus('Tasks cannot be longer than one day.'); if (overlaps(start, end, taskBeingEdited?.id)) return setStatus('Tasks cannot overlap.');
+    const values = { title: form.elements.title.value.trim(), description: form.elements.description.value.trim(), color: form.elements.color.value, start: start.toISOString(), end: end.toISOString() }; if (!values.title) return setStatus('Enter a task title.');
+    if (taskBeingEdited) Object.assign(taskBeingEdited, values); else state.tasks.push({ id: crypto.randomUUID(), ...values, status: form.elements.startMode.value === 'now' ? 'active' : 'scheduled', completedAt: null });
+    saveState('Task saved'); taskBeingEdited = null; form.reset(); form.hidden = true; renderTasks();
   });
   $('#stopwatch-toggle').addEventListener('click', () => { if (state.stopwatch.startedAt) { state.stopwatch.elapsed += now() - state.stopwatch.startedAt; state.stopwatch.startedAt = null; $('#stopwatch-toggle').textContent = 'Resume'; } else { state.stopwatch.startedAt = now(); $('#stopwatch-toggle').textContent = 'Pause'; } saveState(); });
   $('#stopwatch-reset').addEventListener('click', () => { state.stopwatch = { startedAt: null, elapsed: 0, laps: [] }; $('#stopwatch-toggle').textContent = 'Start'; saveState(); renderLaps(); updateStopwatch(); });
   $('#lap-button').addEventListener('click', () => { const elapsed = state.stopwatch.elapsed + (state.stopwatch.startedAt ? now() - state.stopwatch.startedAt : 0); state.stopwatch.laps.push({ elapsed, description: '' }); saveState(); renderLaps(); });
-  $('#countdown-start').addEventListener('click', () => { if (!state.countdown.endsAt) { state.countdown = { endsAt: now() + Math.max(0, Number($('#countdown-minutes').value || 0)) * 60000, remaining: 0, alarmActive: false }; chrome.runtime.sendMessage({ type: 'START_COUNTDOWN', endsAt: state.countdown.endsAt }); saveState(); } });
-  $('#countdown-reset').addEventListener('click', () => { state.countdown = { endsAt: null, remaining: 0, alarmActive: false }; chrome.runtime.sendMessage({ type: 'RESET_COUNTDOWN' }); saveState(); updateCountdown(); });
-  $('#export-all').addEventListener('click', () => downloadJson('notes-tasks-time-backup.json', state));
-  $('#export-notes').addEventListener('click', () => downloadJson('notes.json', { notes: state.notes }));
-  $('#export-tasks').addEventListener('click', () => downloadJson('schedules.json', { tasks: state.tasks }));
-  $('#export-settings').addEventListener('click', () => downloadJson('settings.json', { settings: state.settings }));
-  $('#export-timers').addEventListener('click', () => downloadJson('timers.json', { stopwatch: state.stopwatch, countdown: state.countdown }));
-  $('#import-all').addEventListener('change', importJson);
-  $('#import-notes').addEventListener('change', event => importCategory(event, 'notes'));
-  $('#import-tasks').addEventListener('change', event => importCategory(event, 'tasks'));
-  $('#import-settings').addEventListener('change', event => importCategory(event, 'settings'));
-  $('#import-timers').addEventListener('change', async event => {
-    const imported = await readJson(event);
-    if (imported) { state.stopwatch = imported.stopwatch || state.stopwatch; state.countdown = imported.countdown || state.countdown; await saveState('Timers imported'); renderAll(); }
+  $('#countdown-start').addEventListener('click', () => { if (state.countdown.endsAt) return; const hours = Number($('#countdown-hours').value || 0); const minutes = Number($('#countdown-minutes').value || 0); const seconds = Number($('#countdown-seconds').value || 0); const duration = (hours * 3600 + minutes * 60 + seconds) * 1000; if (duration <= 0) return setStatus('Enter a countdown duration.'); state.countdown = { endsAt: now() + duration, remaining: 0, alarmActive: false, occurrence: crypto.randomUUID(), dismissed: false }; chrome.runtime.sendMessage({ type: 'START_COUNTDOWN', endsAt: state.countdown.endsAt, occurrence: state.countdown.occurrence }); saveState(); });
+  $('#countdown-reset').addEventListener('click', () => { state.countdown = { endsAt: null, remaining: 0, alarmActive: false, occurrence: null, dismissed: false }; chrome.runtime.sendMessage({ type: 'RESET_COUNTDOWN' }); saveState(); updateCountdown(); });
+  wireImportExport();
+}
+function wireImportExport() {
+  $('#export-all').addEventListener('click', () => downloadJson('offline-workspace-backup.json', state)); $('#export-notes').addEventListener('click', () => downloadJson('notes.json', { notes: state.notes })); $('#export-tasks').addEventListener('click', () => downloadJson('schedules.json', { tasks: state.tasks })); $('#export-settings').addEventListener('click', () => downloadJson('settings.json', { settings: state.settings })); $('#export-timers').addEventListener('click', () => downloadJson('timers.json', { stopwatch: state.stopwatch, countdown: state.countdown }));
+  $('#import-all').addEventListener('change', importJson); $('#import-notes').addEventListener('change', event => importCategory(event, 'notes')); $('#import-tasks').addEventListener('change', event => importCategory(event, 'tasks')); $('#import-settings').addEventListener('change', event => importCategory(event, 'settings')); $('#import-timers').addEventListener('change', event => importCategory(event, 'timers'));
+  const settingsForm = $('#settings-form');
+  settingsForm.addEventListener('submit', event => {
+    event.preventDefault();
+    const value = $('#background-image-url').value.trim();
+    if (!value) return setStatus('Enter a background image URL or choose Clear.');
+    try {
+      const url = new URL(value);
+      if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Unsupported protocol');
+    } catch {
+      setStatus('Enter a valid http or https image URL.');
+      return;
+    }
+    state.settings.backgroundImageUrl = value;
+    applyBackgroundImage(value);
+    saveState('Background image saved');
+  });
+  $('#clear-background-image').addEventListener('click', () => {
+    delete state.settings.backgroundImageUrl;
+    $('#background-image-url').value = '';
+    applyBackgroundImage('');
+    saveState('Background image cleared');
   });
 }
 function downloadJson(name, data) { const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })); link.download = name; link.click(); URL.revokeObjectURL(link.href); }
-async function importJson(event) { const file = event.target.files[0]; if (!file) return; try { const imported = JSON.parse(await file.text()); state = { ...state, ...imported, settings: { ...state.settings, ...(imported.settings || {}) } }; await saveState('Backup imported'); renderAll(); } catch { setStatus('Import failed: choose a valid JSON backup.'); } event.target.value = ''; }
 async function readJson(event) { const file = event.target.files[0]; event.target.value = ''; if (!file) return null; try { return JSON.parse(await file.text()); } catch { setStatus('Import failed: choose a valid JSON file.'); return null; } }
-async function importCategory(event, category) { const imported = await readJson(event); if (!imported) return; if (category === 'settings') { if (!imported.settings || typeof imported.settings !== 'object') return setStatus('Import failed: no settings data found.'); state.settings = { ...state.settings, ...imported.settings }; } else { if (!Array.isArray(imported[category])) return setStatus(`Import failed: no ${category} data found.`); state[category] = imported[category]; } await saveState(`${category} imported`); renderAll(); }
+async function importJson(event) { const imported = await readJson(event); if (!imported || typeof imported !== 'object') return; state = { ...state, ...imported, settings: { ...state.settings, ...(imported.settings || {}) } }; await saveState('Backup imported'); renderAll(); }
+async function importCategory(event, category) { const imported = await readJson(event); if (!imported) return; if (category === 'settings') state.settings = { ...state.settings, ...(imported.settings || {}) }; else if (category === 'timers') { state.stopwatch = imported.stopwatch || state.stopwatch; state.countdown = imported.countdown || state.countdown; } else if (Array.isArray(imported[category])) state[category] = imported[category]; else return setStatus(`Import failed: no ${category} data found.`); await saveState(`${category} imported`); renderAll(); }
 
 wireEvents();
 loadState();
-chrome.storage.onChanged.addListener(changes => {
-  if (!changes.todoState?.newValue || saving || activeEditor || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable) return;
-  state = changes.todoState.newValue;
-  renderAll();
-});
+chrome.storage.onChanged.addListener(changes => { if (!changes.todoState?.newValue || saving || activeEditor || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable) return; state = changes.todoState.newValue; renderAll(); });
