@@ -1,766 +1,180 @@
 
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>My Notes</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Offline Workspace</title>
 
-    <style>
-        * {
-            box-sizing: border-box;
-        }
+<style>
+* {
+    box-sizing: border-box;
+}
 
-        body {
-            margin: 0;
-            background: #181824;
-            color: white;
-            font-family: Arial, sans-serif;
-        }
+body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #0b1020;
+    font-family: Arial, sans-serif;
+}
 
-        .app {
-            display: flex;
-            min-height: 100vh;
-        }
+/* Main container */
+.container {
+    text-align: center;
+}
 
-        /* SIDEBAR */
+/* Animated Offline Workspace text */
+.offline-workspace {
+    font-size: 42px;
+    font-weight: bold;
 
-        .sidebar {
-            width: 260px;
-            min-width: 260px;
-            background: #202033;
-            padding: 20px;
-            border-right: 1px solid #35354d;
-        }
+    background: linear-gradient(
+        90deg,
+        #06b6d4,
+        #6366f1,
+        #06b6d4
+    );
 
-        .sidebar h2 {
-            color: #b99aff;
-            margin-top: 5px;
-        }
+    background-size: 200% auto;
+    background-position: 0% center;
 
-        .add-note {
-            width: 100%;
-            padding: 13px;
-            background: #805ad5;
-            color: white;
-            border: none;
-            border-radius: 9px;
-            font-size: 15px;
-            font-weight: bold;
-            cursor: pointer;
-            margin-bottom: 20px;
-        }
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
 
-        .add-note:hover {
-            background: #9874ed;
-        }
+    animation: gradientMove 3s linear infinite;
+}
 
-        .note-list {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
+/* Gradient animation */
+@keyframes gradientMove {
+    from {
+        background-position: 0% center;
+    }
 
-        .note-item {
-            display: flex;
-            align-items: center;
-            gap: 5px;
-            background: #303047;
-            border-radius: 9px;
-            padding: 5px;
-            border: 2px solid transparent;
-        }
+    to {
+        background-position: 200% center;
+    }
+}
 
-        .note-item.active {
-            background: #40365f;
-            border-color: #9874ed;
-        }
+/* Navigation bar */
+nav {
+    display: flex;
+    align-items: center;
+    position: relative;
+    gap: 5px;
+    padding: 7px;
+    margin-top: 30px;
 
-        .note-select {
-            flex: 1;
-            min-width: 0;
-            padding: 10px 5px;
-            text-align: left;
-            color: white;
-            background: transparent;
-            border: none;
-            font-size: 15px;
-            cursor: pointer;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
+    background: #151c30;
+    border: 1px solid #28334c;
+    border-radius: 16px;
+}
 
-        .delete-note {
-            width: 32px;
-            height: 32px;
-            flex-shrink: 0;
-            background: #e64b5d;
-            color: white;
-            border: none;
-            border-radius: 7px;
-            cursor: pointer;
-            font-size: 17px;
-        }
+/* Navigation links */
+nav a {
+    position: relative;
+    z-index: 2;
+    padding: 14px 28px;
 
-        .delete-note:hover {
-            background: #ff6475;
-        }
+    color: #9ca3af;
+    text-decoration: none;
+    font-size: 14px;
 
-        /* MAIN CONTENT */
+    transition: color 0.3s;
+}
 
-        .main {
-            flex: 1;
-            padding: 35px;
-            min-width: 0;
-        }
+nav a.active {
+    color: white;
+}
 
-        .main h1 {
-            color: #b99aff;
-            font-size: 32px;
-            margin-top: 0;
-        }
+/* Sliding liquid indicator */
+.indicator {
+    position: absolute;
+    height: 43px;
+    border-radius: 11px;
 
-        .top-bar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 15px;
-            flex-wrap: wrap;
-            margin-bottom: 30px;
-        }
+    background: linear-gradient(
+        90deg,
+        #06b6d4,
+        #6366f1
+    );
 
-        .add-box {
-            background: #805ad5;
-            color: white;
-            border: none;
-            border-radius: 9px;
-            padding: 13px 20px;
-            font-size: 15px;
-            font-weight: bold;
-            cursor: pointer;
-        }
+    z-index: 1;
+    pointer-events: none;
 
-        .add-box:hover {
-            background: #9874ed;
-        }
+    transition:
+        left 0.5s cubic-bezier(.68,-0.2,.27,1.3),
+        width 0.5s cubic-bezier(.68,-0.2,.27,1.3);
+}
 
-        /* TEXT EDITORS */
+/* Responsive design */
+@media (max-width: 450px) {
+    .offline-workspace {
+        font-size: 30px;
+    }
 
-        .container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 25px;
-        }
-
-        .editor-wrapper {
-            display: flex;
-            align-items: stretch;
-            gap: 10px;
-            width: 100%;
-            max-width: 650px;
-            position: relative;
-        }
-
-        .drag-handle {
-            width: 25px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #9999bb;
-            font-size: 25px;
-            cursor: grab;
-            user-select: none;
-            flex-shrink: 0;
-            touch-action: none;
-        }
-
-        .drag-handle:hover {
-            color: #b99aff;
-        }
-
-        .editor {
-            flex: 1;
-            min-width: 0;
-        }
-
-        .toolbar {
-            display: flex;
-            justify-content: center;
-            flex-wrap: wrap;
-            gap: 5px;
-            background: #29293d;
-            padding: 10px;
-            border-radius: 12px 12px 0 0;
-        }
-
-        .toolbar button {
-            background: #41415c;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            padding: 9px 12px;
-            font-size: 15px;
-            cursor: pointer;
-        }
-
-        .toolbar button:hover {
-            background: #6b55a5;
-        }
-
-        .text-box {
-            width: 100%;
-            height: 200px;
-            padding: 15px;
-            border: 2px solid #41415c;
-            border-radius: 0 0 12px 12px;
-            background: #242436;
-            color: white;
-            font-size: 17px;
-            overflow-y: auto;
-            outline: none;
-        }
-
-        .text-box:focus {
-            border-color: #a78bfa;
-        }
-
-        .delete-box {
-            align-self: center;
-            background: #e64b5d;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            width: 35px;
-            height: 38px;
-            font-size: 18px;
-            cursor: pointer;
-            flex-shrink: 0;
-        }
-
-        .delete-box:hover {
-            background: #ff6475;
-        }
-
-        /* DRAGGING */
-
-        .dragging {
-            position: fixed;
-            z-index: 1000;
-            pointer-events: none;
-            opacity: 0.95;
-            box-shadow: 0 15px 35px rgba(0,0,0,0.5);
-        }
-
-        .placeholder {
-            width: 100%;
-            height: 240px;
-            border: 2px dashed #8c76c9;
-            border-radius: 12px;
-            flex-shrink: 0;
-        }
-
-        .empty-message {
-            color: #8888a5;
-            margin-top: 70px;
-            font-size: 17px;
-        }
-
-        @media (max-width: 650px) {
-            .sidebar {
-                width: 180px;
-                min-width: 180px;
-                padding: 12px;
-            }
-
-            .main {
-                padding: 20px 12px;
-            }
-
-            .toolbar button {
-                padding: 7px;
-            }
-        }
-
-    </style>
+    nav a {
+        padding: 12px 17px;
+        font-size: 13px;
+    }
+}
+</style>
 </head>
 
 <body>
 
-<div class="app">
+<div class="container">
 
-    <!-- SIDEBAR -->
+    <h1 class="offline-workspace">
+        Offline Workspace
+    </h1>
 
-    <aside class="sidebar">
+    <nav>
+        <span class="indicator"></span>
 
-        <h2>My Notes</h2>
+        <a href="#" class="active"
+           onclick="changeTab(event,this)">Home</a>
 
-        <button class="add-note" onclick="addNote()">
-            + New Note
-        </button>
+        <a href="#"
+           onclick="changeTab(event,this)">Projects</a>
 
-        <div class="note-list" id="noteList"></div>
-
-    </aside>
-
-
-    <!-- MAIN CONTENT -->
-
-    <main class="main">
-
-        <div class="top-bar">
-
-            <h1 id="noteTitle">My First Note</h1>
-
-            <button class="add-box" onclick="addTextBox()">
-                + Add Text Box
-            </button>
-
-        </div>
-
-        <div class="container" id="container"></div>
-
-    </main>
+        <a href="#"
+           onclick="changeTab(event,this)">About</a>
+    </nav>
 
 </div>
 
-
 <script>
-
-    // NOTES DATA
-
-    let notes = [
-        {
-            id: 1,
-            title: "My First Note",
-            editors: [
-                { id: 1, content: "" },
-                { id: 2, content: "" }
-            ]
-        },
-        {
-            id: 2,
-            title: "My Second Note",
-            editors: [
-                { id: 3, content: "" }
-            ]
-        }
-    ];
-
-    let activeNoteId = 1;
-
-    let nextNoteId = 3;
-    let nextEditorId = 4;
-
-
-    // GET ACTIVE NOTE
-
-    function getActiveNote() {
-        return notes.find(note => note.id === activeNoteId);
-    }
-
-
-    // DISPLAY SIDEBAR
-
-    function renderSidebar() {
-
-        const list = document.getElementById("noteList");
-
-        list.innerHTML = "";
-
-        notes.forEach(note => {
-
-            const item = document.createElement("div");
-
-            item.className = "note-item";
-
-            if (note.id === activeNoteId) {
-                item.classList.add("active");
-            }
-
-            const select = document.createElement("button");
-
-            select.className = "note-select";
-            select.textContent = note.title;
-
-            select.onclick = () => switchNote(note.id);
-
-            const deleteButton = document.createElement("button");
-
-            deleteButton.className = "delete-note";
-            deleteButton.innerHTML = "&#128465;";
-            deleteButton.title = "Delete note";
-
-            deleteButton.onclick = () => deleteNote(note.id);
-
-            item.appendChild(select);
-            item.appendChild(deleteButton);
-
-            list.appendChild(item);
-
-        });
-
-    }
-
-
-    // SWITCH NOTES
-
-    function switchNote(id) {
-
-        saveCurrentNote();
-
-        activeNoteId = id;
-
-        renderSidebar();
-        renderEditors();
-
-    }
-
-
-    // SAVE EDITOR CONTENT
-
-    function saveCurrentNote() {
-
-        const note = getActiveNote();
-
-        if (!note) return;
-
-        const wrappers = document.querySelectorAll(
-            "#container .editor-wrapper"
-        );
-
-        wrappers.forEach(wrapper => {
-
-            const editorId = Number(wrapper.dataset.id);
-
-            const editorData = note.editors.find(
-                editor => editor.id === editorId
-            );
-
-            if (editorData) {
-                editorData.content =
-                    wrapper.querySelector(".text-box").innerHTML;
-            }
-
-        });
-
-    }
-
-
-    // ADD NOTE
-
-    function addNote() {
-
-        saveCurrentNote();
-
-        const id = nextNoteId++;
-
-        notes.push({
-            id: id,
-            title: "New Note " + id,
-            editors: []
-        });
-
-        activeNoteId = id;
-
-        renderSidebar();
-        renderEditors();
-
-    }
-
-
-    // DELETE NOTE
-
-    function deleteNote(id) {
-
-        const note = notes.find(note => note.id === id);
-
-        if (!note) return;
-
-        const confirmed = confirm(
-            "Delete '" + note.title +
-            "' and all its text boxes?"
-        );
-
-        if (!confirmed) return;
-
-        notes = notes.filter(note => note.id !== id);
-
-        if (activeNoteId === id) {
-
-            if (notes.length > 0) {
-                activeNoteId = notes[0].id;
-            } else {
-                activeNoteId = null;
-            }
-
-        }
-
-        renderSidebar();
-        renderEditors();
-
-    }
-
-
-    // ADD TEXT BOX
-
-    function addTextBox() {
-
-        const note = getActiveNote();
-
-        if (!note) {
-            alert("Create a note first!");
-            return;
-        }
-
-        const id = nextEditorId++;
-
-        note.editors.push({
-            id: id,
-            content: ""
-        });
-
-        renderEditors();
-
-    }
-
-
-    // DELETE TEXT BOX
-
-    function deleteTextBox(id) {
-
-        const note = getActiveNote();
-
-        if (!note) return;
-
-        note.editors = note.editors.filter(
-            editor => editor.id !== id
-        );
-
-        renderEditors();
-
-    }
-
-
-    // RENDER EDITORS
-
-    function renderEditors() {
-
-        const container = document.getElementById("container");
-        const title = document.getElementById("noteTitle");
-
-        container.innerHTML = "";
-
-        const note = getActiveNote();
-
-        if (!note) {
-
-            title.textContent = "No Notes";
-
-            container.innerHTML =
-                '<p class="empty-message">Create a new note to get started.</p>';
-
-            return;
-        }
-
-        title.textContent = note.title;
-
-        note.editors.forEach(editorData => {
-
-            const wrapper = document.createElement("div");
-
-            wrapper.className = "editor-wrapper";
-            wrapper.dataset.id = editorData.id;
-
-            wrapper.innerHTML = `
-                <div class="drag-handle" title="Drag to rearrange">
-                    ⠿
-                </div>
-
-                <div class="editor">
-
-                    <div class="toolbar">
-                        <button onmousedown="event.preventDefault()"
-                        onclick="format('bold', this)"><b>B</b></button>
-
-                        <button onmousedown="event.preventDefault()"
-                        onclick="format('italic', this)"><i>I</i></button>
-
-                        <button onmousedown="event.preventDefault()"
-                        onclick="format('underline', this)"><u>U</u></button>
-
-                        <button onmousedown="event.preventDefault()"
-                        onclick="format('justifyLeft', this)">Left</button>
-
-                        <button onmousedown="event.preventDefault()"
-                        onclick="format('justifyCenter', this)">Center</button>
-
-                        <button onmousedown="event.preventDefault()"
-                        onclick="format('justifyRight', this)">Right</button>
-                    </div>
-
-                    <div class="text-box" contenteditable="true"></div>
-
-                </div>
-
-                <button class="delete-box"
-                onclick="deleteTextBox(${editorData.id})"
-                title="Delete text box">
-                    &#128465;
-                </button>
-            `;
-
-            wrapper.querySelector(".text-box").innerHTML =
-                editorData.content;
-
-            wrapper.querySelector(".text-box").addEventListener(
-                "input",
-                function() {
-                    editorData.content = this.innerHTML;
-                }
-            );
-
-            container.appendChild(wrapper);
-
-        });
-
-    }
-
-
-    // TEXT FORMATTING
-
-    function format(command, button) {
-
-        const editor = button.closest(".editor");
-
-        const textBox = editor.querySelector(".text-box");
-
-        textBox.focus();
-
-        document.execCommand(command, false, null);
-
-    }
-
-
-    // DRAG AND DROP
-
-    const container = document.getElementById("container");
-
-    let draggedItem = null;
-    let placeholder = null;
-    let offsetY = 0;
-
-    container.addEventListener("pointerdown", function(event) {
-
-        const handle = event.target.closest(".drag-handle");
-
-        if (!handle || event.button !== 0) return;
-
-        event.preventDefault();
-
-        draggedItem = handle.closest(".editor-wrapper");
-
-        const rect = draggedItem.getBoundingClientRect();
-
-        offsetY = event.clientY - rect.top;
-
-        placeholder = document.createElement("div");
-        placeholder.className = "placeholder";
-
-        placeholder.style.height = rect.height + "px";
-
-        container.insertBefore(placeholder, draggedItem.nextSibling);
-
-        draggedItem.classList.add("dragging");
-
-        draggedItem.style.width = rect.width + "px";
-        draggedItem.style.left = rect.left + "px";
-        draggedItem.style.top = rect.top + "px";
-
-        document.body.appendChild(draggedItem);
-
+const nav = document.querySelector("nav");
+const indicator = document.querySelector(".indicator");
+
+function updateIndicator(link) {
+    indicator.style.width = link.offsetWidth + "px";
+    indicator.style.left = link.offsetLeft + "px";
+}
+
+function changeTab(event, link) {
+    event.preventDefault();
+
+    nav.querySelectorAll("a").forEach(a => {
+        a.classList.remove("active");
     });
 
+    link.classList.add("active");
 
-    document.addEventListener("pointermove", function(event) {
+    updateIndicator(link);
+}
 
-        if (!draggedItem) return;
+// Set initial indicator position
+updateIndicator(document.querySelector(".active"));
 
-        // Move vertically only
-
-        draggedItem.style.top =
-            (event.clientY - offsetY) + "px";
-
-        const editors = [
-            ...container.querySelectorAll(".editor-wrapper")
-        ];
-
-        for (const editor of editors) {
-
-            const rect = editor.getBoundingClientRect();
-
-            const middle = rect.top + rect.height / 2;
-
-            if (event.clientY < middle) {
-
-                container.insertBefore(placeholder, editor);
-                break;
-
-            } else {
-
-                container.appendChild(placeholder);
-
-            }
-
-        }
-
-    });
-
-
-    function finishDragging() {
-
-        if (!draggedItem) return;
-
-        container.insertBefore(draggedItem, placeholder);
-
-        draggedItem.classList.remove("dragging");
-
-        draggedItem.style.width = "";
-        draggedItem.style.left = "";
-        draggedItem.style.top = "";
-
-        placeholder.remove();
-
-        draggedItem = null;
-        placeholder = null;
-
-        // Save the new order
-
-        const note = getActiveNote();
-
-        if (note) {
-
-            note.editors = [
-                ...container.querySelectorAll(".editor-wrapper")
-            ].map(wrapper => {
-
-                const id = Number(wrapper.dataset.id);
-
-                return note.editors.find(editor => editor.id === id);
-
-            });
-
-        }
-
-    }
-
-    document.addEventListener("pointerup", finishDragging);
-    document.addEventListener("pointercancel", finishDragging);
-
-
-    // INITIALIZE
-
-    renderSidebar();
-    renderEditors();
-
+// Keep indicator aligned when window resizes
+window.addEventListener("resize", () => {
+    updateIndicator(document.querySelector(".active"));
+});
 </script>
 
 </body>

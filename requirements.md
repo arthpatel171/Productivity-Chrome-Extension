@@ -33,6 +33,8 @@ The full workspace is opened from the browser popup and contains three tabs:
 
 - The Calendar tab is active and visible when the workspace first loads.
 - The selected tab controls which workspace section is visible.
+- Switching between Calendar, Notes, and Time tools uses a brief fade-and-rise
+  transition, and the active tab indicator transitions smoothly.
 - The Calendar page uses the motto **Plan the day** and the title
   **Calendar and tasks**.
 - The Notes page uses the motto **Write freely** and the title **Notes**.
@@ -40,6 +42,8 @@ The full workspace is opened from the browser popup and contains three tabs:
   **Time tools**.
 - The workspace header displays Offline Workspace branding, a theme toggle,
   and an Import/Export menu.
+- The Offline Workspace title uses a bold, clean sans-serif display treatment
+  in the workspace and browser popup.
 - The workspace Settings button/menu has been removed.
 - The workspace uses the current theme and persisted state when it loads.
 - Status messages appear in the workspace status region when an operation

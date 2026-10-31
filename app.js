@@ -119,7 +119,7 @@ function deleteNote(note) {
   if (activeNoteId === note.id) activeNoteId = state.notes[0].id;
   saveState('Note deleted'); renderNotes();
 }
-function newBlock() { return { id: crypto.randomUUID(), title: 'Text box', html: '', collapsed: false, width: 100, height: 180, fontFamily: 'Arial, sans-serif', customColors: [] }; }
+function newBlock() { return { id: crypto.randomUUID(), title: 'Text box', html: '', collapsed: false, width: 100, height: 180, fontFamily: 'Arial, sans-serif', fontSize: 18, customColors: [] }; }
 function renderNotesListOnly() { [...$('#note-list').querySelectorAll('.note-list-item')].forEach((item, index) => { item.textContent = state.notes[index].title || 'Untitled note'; }); }
 function createBlock(note, block, index, blockList) {
   const wrapper = document.createElement('div'); wrapper.className = 'editor-wrapper';
@@ -130,16 +130,21 @@ function createBlock(note, block, index, blockList) {
   const blockTitle = document.createElement('input'); blockTitle.className = 'block-title'; blockTitle.value = block.title || 'Text box'; blockTitle.setAttribute('aria-label', 'Text box title'); blockTitle.addEventListener('input', () => { block.title = blockTitle.value; saveState(); });
   const fontFamily = document.createElement('select'); fontFamily.className = 'font-family'; fontFamily.setAttribute('aria-label', 'Font family'); populateFonts(fontFamily, block);
   fontFamily.addEventListener('change', () => { rememberFont(fontFamily.value); applyCommand('fontName', fontFamily.value); block.fontFamily = fontFamily.value; editor.style.fontFamily = fontFamily.value; saveState(); });
-  const fontSize = document.createElement('select'); fontSize.setAttribute('aria-label', 'Font size'); [['Small', '2'], ['Normal', '3'], ['Large', '5'], ['Huge', '7']].forEach(([label, value]) => fontSize.appendChild(new Option(label, value)));
-  fontSize.addEventListener('change', () => applyCommand('fontSize', fontSize.value));
+  const fontSize = document.createElement('input'); fontSize.className = 'font-size-input'; fontSize.type = 'number'; fontSize.min = '1'; fontSize.max = '200'; fontSize.step = '1'; fontSize.value = block.fontSize || 18; fontSize.setAttribute('aria-label', 'Font size in pixels'); fontSize.title = 'Font size in pixels';
+  const decreaseFontSize = button('−', 'format-button font-size-button'); decreaseFontSize.title = 'Decrease font size'; decreaseFontSize.setAttribute('aria-label', 'Decrease font size');
+  const increaseFontSize = button('+', 'format-button font-size-button'); increaseFontSize.title = 'Increase font size'; increaseFontSize.setAttribute('aria-label', 'Increase font size');
+  [decreaseFontSize, increaseFontSize].forEach(item => item.addEventListener('mousedown', event => event.preventDefault()));
+  decreaseFontSize.addEventListener('click', () => changeFontSize(block, fontSize, -1));
+  increaseFontSize.addEventListener('click', () => changeFontSize(block, fontSize, 1));
+  fontSize.addEventListener('change', () => setFontSize(block, fontSize));
   const color = colorPicker(block, 'Text color', 'foreColor');
   const highlight = colorPicker(block, 'Highlight color', 'hiliteColor', state.settings.highlightColor);
   const collapse = button(block.collapsed ? 'Expand' : 'Collapse', 'icon'); collapse.addEventListener('click', () => { block.collapsed = !block.collapsed; saveState(); renderNotes(); });
   const remove = button('Delete', 'danger'); remove.addEventListener('click', () => { note.blocks = note.blocks.filter(item => item.id !== block.id); saveState(); renderNotes(); });
-  toolbar.append(blockTitle, formatButton('B', 'Bold', 'bold'), formatButton('I', 'Italic', 'italic'), formatButton('U', 'Underline', 'underline'), formatButton('•', 'Bulleted list', 'insertUnorderedList'), formatButton('1.', 'Numbered list', 'insertOrderedList'), fontFamily, fontSize, color, highlight, collapse, remove);
-  const editor = document.createElement('div'); editor.className = 'wysiwyg'; editor.contentEditable = 'true'; editor.innerHTML = block.html || ''; editor.dataset.placeholder = 'Start typing...'; editor.style.fontFamily = block.fontFamily || 'Arial, sans-serif'; editor.style.minHeight = `${block.height || 180}px`;
+  toolbar.append(blockTitle, formatButton('B', 'Bold', 'bold'), formatButton('I', 'Italic', 'italic'), formatButton('U', 'Underline', 'underline'), formatButton('•', 'Bulleted list', 'insertUnorderedList'), formatButton('1.', 'Numbered list', 'insertOrderedList'), fontFamily, decreaseFontSize, fontSize, increaseFontSize, color, highlight, collapse, remove);
+  const editor = document.createElement('div'); editor.className = 'wysiwyg'; editor.contentEditable = 'true'; editor.innerHTML = block.html || ''; editor.dataset.placeholder = 'Start typing...'; editor.style.fontFamily = block.fontFamily || 'Arial, sans-serif'; editor.style.fontSize = `${block.fontSize || 18}px`; editor.style.minHeight = `${block.height || 180}px`;
   editor.addEventListener('focus', () => { activeEditor = editor; });
-  editor.addEventListener('keyup', () => syncToolbar(editor, fontFamily)); editor.addEventListener('mouseup', () => syncToolbar(editor, fontFamily));
+  editor.addEventListener('keyup', () => syncToolbar(editor, fontFamily, fontSize)); editor.addEventListener('mouseup', () => syncToolbar(editor, fontFamily, fontSize));
   editor.addEventListener('input', () => { applyTypingShortcut(editor); block.html = editor.innerHTML; block.fontFamily = window.getComputedStyle(editor).fontFamily || block.fontFamily; block.height = editor.scrollHeight; block.customColors = (block.customColors || []).filter(colorValue => block.html.toLowerCase().includes(colorValue.toLowerCase())); saveState(); });
   editor.addEventListener('blur', () => { block.html = editor.innerHTML; activeEditor = null; saveState(); });
   if (block.collapsed) editor.hidden = true; article.append(toolbar, editor); wrapper.append(drag, article); enableBlockDragging(note, block, wrapper, drag, blockList); return wrapper;
@@ -183,9 +188,35 @@ function fontEntries(block) {
 function populateFonts(select, block) { select.replaceChildren(); fontEntries(block).forEach(([label, value], index) => { const option = new Option(label, value); option.style.fontFamily = value; option.selected = value === (block.fontFamily || 'Arial, sans-serif'); if (index === 0 && state.settings.recentFonts?.length) option.textContent = `Recently used: ${label}`; select.appendChild(option); }); }
 function rememberFont(value) { state.settings.recentFonts = [value, ...(state.settings.recentFonts || []).filter(item => item !== value)].slice(0, 8); }
 function applyCommand(command, value = null) { if (!activeEditor) return; activeEditor.focus(); document.execCommand(command, false, value); activeEditor.dispatchEvent(new Event('input')); }
+function setFontSize(block, input) {
+  const value = Math.max(1, Math.min(200, Number.parseInt(input.value, 10) || block.fontSize || 18));
+  input.value = value;
+  block.fontSize = value;
+  if (!activeEditor) return saveState();
+  activeEditor.focus();
+  document.execCommand('fontSize', false, '7');
+  activeEditor.querySelectorAll('font[size="7"]').forEach(item => { item.removeAttribute('size'); item.style.fontSize = `${value}px`; });
+  activeEditor.style.fontSize = `${value}px`;
+  activeEditor.dispatchEvent(new Event('input'));
+}
+function changeFontSize(block, input, delta) {
+  input.value = Math.max(1, Math.min(200, (Number.parseInt(input.value, 10) || block.fontSize || 18) + delta));
+  setFontSize(block, input);
+}
 function formatButton(label, title, command) { const item = button(label, 'format-button'); item.title = title; item.setAttribute('aria-label', title); item.addEventListener('mousedown', event => event.preventDefault()); item.addEventListener('click', () => applyCommand(command)); return item; }
 function colorPicker(block, title, command, fallback = null) { const input = document.createElement('input'); input.type = 'color'; input.title = title; input.setAttribute('aria-label', title); input.value = fallback || block.color || state.settings.textColor; input.addEventListener('input', () => { block.color = input.value; block.customColors = [...new Set([...(block.customColors || []), input.value])]; applyCommand(command, input.value); saveState(); }); return input; }
-function syncToolbar(editor, select) { const family = document.queryCommandValue('fontName'); const option = [...select.options].find(item => item.value.toLowerCase().replaceAll('"', '') === family.toLowerCase().replaceAll('"', '')); if (option) select.value = option.value; }
+function syncToolbar(editor, select, sizeInput) {
+  const family = document.queryCommandValue('fontName');
+  const option = [...select.options].find(item => item.value.toLowerCase().replaceAll('"', '') === family.toLowerCase().replaceAll('"', ''));
+  if (option) select.value = option.value;
+  if (sizeInput) {
+    const selection = window.getSelection();
+    const node = selection?.anchorNode;
+    const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+    const size = element && editor.contains(element) ? Number.parseFloat(window.getComputedStyle(element).fontSize) : Number.parseFloat(window.getComputedStyle(editor).fontSize);
+    if (Number.isFinite(size)) sizeInput.value = Math.round(size);
+  }
+}
 function applyTypingShortcut(editor) {
   const selection = window.getSelection(); if (!selection.rangeCount || !editor.contains(selection.anchorNode)) return;
   const text = selection.anchorNode.textContent || ''; const before = text.slice(0, selection.anchorOffset); const match = before.match(/(?:^|\n)(# |[*-] |1[.)] )$/); if (!match) return;
@@ -347,7 +378,20 @@ function wireEvents() {
     applyTheme(nextTheme);
     saveState();
   });
-  document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => { document.querySelectorAll('.tab').forEach(item => item.classList.toggle('is-active', item === tab)); document.querySelectorAll('.view').forEach(view => view.classList.toggle('is-visible', view.id === tab.dataset.view)); }));
+  const tabs = document.querySelector('.tabs');
+  const tabIndicator = document.querySelector('.tab-indicator');
+  const updateTabIndicator = tab => {
+    if (!tabIndicator || !tab) return;
+    tabIndicator.style.width = `${tab.offsetWidth}px`;
+    tabIndicator.style.left = `${tab.offsetLeft}px`;
+  };
+  document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(item => item.classList.toggle('is-active', item === tab));
+    document.querySelectorAll('.view').forEach(view => view.classList.toggle('is-visible', view.id === tab.dataset.view));
+    updateTabIndicator(tab);
+  }));
+  updateTabIndicator(tabs?.querySelector('.tab.is-active'));
+  window.addEventListener('resize', () => updateTabIndicator(tabs?.querySelector('.tab.is-active')));
   $('#new-task').addEventListener('click', () => { taskBeingEdited = null; const form = $('#task-form'); form.reset(); syncTaskColorPicker(); form.hidden = false; $('#task-meta').textContent = ''; const start = new Date(); setTimeFields(form, 'start', start); form.elements.endTime.value = ''; setEndTimePlaceholder(form, start); form.querySelector('.form-actions').querySelectorAll('.task-action').forEach(item => item.remove()); window.scrollTo({ top: 0, behavior: 'smooth' }); });
   $('#cancel-task').addEventListener('click', () => { taskBeingEdited = null; $('#task-form').hidden = true; });
   $('#task-form').addEventListener('submit', event => {
