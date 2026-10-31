@@ -1,7 +1,7 @@
 # Offline Workspace Requirements
 
 This document describes the functionality currently implemented by the extension as of
-October 30, 2026. It is a current-state specification, not a list of planned features.
+October 31, 2026. It is a current-state specification, not a list of planned features.
 
 ## 1. Product and platform
 
@@ -30,13 +30,19 @@ countdown data, and settings are stored together in the persisted workspace stat
 - Notes can be selected and deleted. Deleting a note requires confirmation, and the
   final remaining note cannot be deleted.
 - Each note can contain multiple text boxes.
+- The Notes page is labeled “Write freely” and “Notes.”
+- The Notes sidebar has a transparent background and no divider line, with a
+  “+ New Note” button, note selection buttons, and a red trash button for each
+  note.
+- The active note editor shows the note title and an “+ Add Text Box” button in
+  its top bar.
 - Text boxes have editable titles and can be deleted.
 - Text boxes can be reordered vertically using their drag handle.
 - Text boxes can be collapsed and expanded.
 - Text boxes save their content, order, width, height, collapsed state, font, and
   color-related settings.
 - Text boxes use a content-editable WYSIWYG editor.
-- Text boxes are independently resizable through their saved dimensions and grow with
+- Text boxes use saved width and height values and grow their saved height with
   their content.
 - Typing `# ` at the beginning of a line converts the line to an H1.
 - Typing `* ` or `- ` starts a bulleted list.
@@ -90,6 +96,7 @@ Color behavior:
 - The countdown has separate hour, minute, and second inputs.
 - The inputs default to zero.
 - The countdown supports start and reset.
+- The countdown display uses `HH:MM:SS` format and starts at `00:00:00`.
 - Countdown state is persisted using timestamps.
 - The countdown continues through the background service worker when the workspace page
   is not open.
@@ -137,7 +144,10 @@ Calendar display:
 - Tasks are clipped to the configured visible start and the end of the day for
   display; clipping does not modify task data.
 - The calendar body is vertically scrollable.
-- The visible start defaults to 8:00 AM and can be changed with a time textbox and
+- The visible start defaults to the current local time rounded down to the
+  preceding 30-minute boundary when it is earlier than 8:00 AM; otherwise it
+  defaults to 8:00 AM. For example, 12:41 AM displays a 12:30 AM start. It can
+  be changed with a time textbox and
   AM/PM selector in the calendar header.
 - The visible end is fixed at 11:59 PM; there is no end-time textbox or draggable
   boundary control.

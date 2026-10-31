@@ -11,12 +11,13 @@ const FONT_OPTIONS = [
 ];
 const STANDARD_COLORS = [['Dark Red', '#8b0000'], ['Red', '#dc2626'], ['Orange', '#f97316'], ['Yellow', '#facc15'], ['Light Green', '#86efac'], ['Green', '#16a34a'], ['Teal', '#14b8a6'], ['Blue', '#2563eb'], ['Dark Blue', '#123b66'], ['Purple (Violet)', '#8b5cf6']];
 const CALENDAR_PIXELS_PER_MINUTE = 2;
+function defaultCalendarStart() { const current = new Date(); const currentMinutes = current.getHours() * 60 + current.getMinutes(); return Math.min(Math.floor(currentMinutes / 30) * 30, 8 * 60); }
 const DEFAULT_STATE = {
   notes: [{ id: crypto.randomUUID(), title: 'Welcome note', blocks: [{ id: crypto.randomUUID(), title: 'Ideas', html: '<p>Start writing here.</p>', collapsed: false, width: 100, height: 180, fontFamily: 'Arial, sans-serif', customColors: [] }] }],
   tasks: [], stopwatch: { startedAt: null, elapsed: 0, laps: [] },
   countdown: { endsAt: null, remaining: 0, alarmActive: false, occurrence: null, dismissed: false },
   settings: { textColor: '#d7e3f4', highlightColor: '#123b66', enabled: true, theme: 'dark' },
-  calendar: { visibleStart: 8 * 60, visibleEnd: 1440 }
+  calendar: { visibleStart: defaultCalendarStart(), visibleEnd: 1440, visibleStartUserSet: false }
 };
 
 let state;
@@ -42,7 +43,11 @@ async function loadState() {
   applyTheme(state.settings.theme);
   applyBackgroundImage(state.settings.backgroundImageUrl);
   state.calendar = { ...clone(DEFAULT_STATE.calendar), ...(state.calendar || {}) };
-  if (!stored.todoState?.calendar || (state.calendar.visibleStart === 0 && state.calendar.visibleEnd === 1440)) state.calendar = clone(DEFAULT_STATE.calendar);
+  if (!stored.todoState?.calendar || !state.calendar.visibleStartUserSet || (state.calendar.visibleStart === 0 && state.calendar.visibleEnd === 1440)) {
+    state.calendar.visibleStart = defaultCalendarStart();
+    state.calendar.visibleEnd = 1440;
+    state.calendar.visibleStartUserSet = false;
+  }
   $('#background-image-url').value = state.settings.backgroundImageUrl || '';
   activeNoteId = state.notes[0].id;
   lastSavedStateJson = JSON.stringify(state);
@@ -188,7 +193,7 @@ function applyTypingShortcut(editor) {
 function dayBounds() { const start = new Date(); start.setHours(0, 0, 0, 0); return { start, end: new Date(start.getTime() + 86400000) }; }
 function taskDisplayEnd(task) { return task.status === 'extended' ? Math.min(now(), new Date(task.start).setHours(23, 59, 59, 999)) : new Date(task.end).getTime(); }
 function renderTasks() {
-  syncExtendedTasks(); const calendar = $('#day-calendar'); const existingBody = calendar.querySelector('.calendar-day-body'); if (existingBody) calendarScrollTop = existingBody.scrollTop; calendar.replaceChildren(); const day = dayBounds(); const startMinutes = Math.max(0, Math.min(1439, state.calendar.visibleStart ?? 8 * 60)); const endMinutes = 1440; const range = endMinutes - startMinutes;
+  syncExtendedTasks(); const calendar = $('#day-calendar'); const existingBody = calendar.querySelector('.calendar-day-body'); if (existingBody) calendarScrollTop = existingBody.scrollTop; calendar.replaceChildren(); const day = dayBounds(); const startMinutes = Math.max(0, Math.min(1439, state.calendar.visibleStart ?? defaultCalendarStart())); const endMinutes = 1440; const range = endMinutes - startMinutes;
   const header = document.createElement('div'); header.className = 'calendar-day-header';
   const dayLabel = document.createElement('strong'); dayLabel.textContent = day.start.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
   header.append(dayLabel, createVisibleTimeEditor(startMinutes)); calendar.appendChild(header);
@@ -221,6 +226,7 @@ function createVisibleTimeEditor(startMinutes) {
     }
     state.calendar.visibleStart = nextStart;
     state.calendar.visibleEnd = 1440;
+    state.calendar.visibleStartUserSet = true;
     saveState();
     renderTasks();
   };
