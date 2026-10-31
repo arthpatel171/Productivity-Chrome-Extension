@@ -15,12 +15,6 @@
       </div>
       <div class="header-actions header-tools">
         <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme">☀️ Light</button>
-        <details class="settings-menu"><summary>Settings</summary><form id="settings-form" class="settings-popup">
-          <label>Theme<select id="theme-select" name="theme"><option value="dark">Dark</option><option value="light">Light</option></select></label>
-          <label>Background image URL<input id="background-image-url" name="backgroundImageUrl" type="url" placeholder="https://example.com/image.jpg"></label>
-          <div class="settings-actions"><button type="submit" class="primary">Apply</button><button id="clear-background-image" type="button">Clear</button></div>
-          <p class="settings-help">Use an image URL available to the browser.</p>
-        </form></details>
         <details class="import-export"><summary>Import/Export</summary><div class="header-actions">
         <button id="export-all" type="button">Export backup</button><label class="file-button">Import backup<input id="import-all" type="file" accept="application/json"></label>
         <button id="export-notes" type="button">Export notes</button><label class="file-button">Import notes<input id="import-notes" type="file" accept="application/json"></label>
@@ -44,19 +38,16 @@
       </div>
       <form id="task-form" class="task-form" hidden>
         <div class="form-grid">
-          <label>Title<input name="title" required placeholder="Write a project brief"></label>
-          <label>Color<input name="color" type="color" value="#2f6fae"></label>
+          <label>Title<input name="title" required placeholder="Name of task"></label>
+          <label>Color<div class="task-color-picker"><input name="color" type="color" value="#2f6fae" aria-label="Custom task color"><div class="standard-colors" aria-label="Standard task colors"></div><button class="custom-color-button" type="button">Choose custom color</button></div></label>
           <label>Description<textarea name="description" rows="2" placeholder="Optional details"></textarea></label>
-          <fieldset><legend>Start</legend><label><input name="startMode" type="radio" value="now" checked> Start now</label><label><input name="startMode" type="radio" value="later"> Schedule later</label></fieldset>
-          <label>Start date<input name="startDate" type="date" required></label>
-          <label>Start time<div class="time-input"><input name="startTime" type="text" inputmode="numeric" placeholder="5:47" pattern="[0-9]{1,2}:[0-9]{2}" required><select name="startPeriod" aria-label="Start time AM or PM"><option>AM</option><option>PM</option></select></div></label>
-          <label>End date<input name="endDate" type="date" required></label>
-          <label>End time<div class="time-input"><input name="endTime" type="text" inputmode="numeric" placeholder="6:47" pattern="[0-9]{1,2}:[0-9]{2}" required><select name="endPeriod" aria-label="End time AM or PM"><option>AM</option><option>PM</option></select></div></label>
+          <fieldset class="task-time-range"><legend>Task time</legend><label>Start time<div class="time-input"><input name="startTime" type="text" inputmode="numeric" placeholder="5:47" pattern="[0-9]{1,2}:[0-9]{2}" required><select name="startPeriod" aria-label="Start time AM or PM"><option>AM</option><option>PM</option></select></div></label><label>End time<div class="time-input"><input name="endTime" type="text" inputmode="numeric" placeholder="6:47" pattern="[0-9]{1,2}:[0-9]{2}"><select name="endPeriod" aria-label="End time AM or PM"><option>AM</option><option>PM</option></select></div></label></fieldset>
         </div>
         <p id="task-meta" class="task-meta" aria-live="polite"></p>
         <div class="form-actions"><button type="submit" class="primary">Save task</button><button id="cancel-task" type="button">Cancel</button></div>
       </form>
       <div id="day-calendar" class="day-calendar" aria-label="Today's calendar"></div>
+      <section id="task-color-chart" class="task-color-chart" aria-label="Task time by color"></section>
     </section>
 
     <section id="notes-view" class="view">

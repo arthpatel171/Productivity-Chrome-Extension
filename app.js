@@ -9,7 +9,7 @@ const FONT_OPTIONS = [
   ['Times New Roman', '"Times New Roman", serif'], ['Trebuchet MS', '"Trebuchet MS", sans-serif'],
   ['Verdana', 'Verdana, sans-serif'], ['Handlee', 'Handlee, cursive']
 ];
-const STANDARD_COLORS = [['Dark Red', '#8b0000'], ['Red', '#dc2626'], ['Orange', '#f97316'], ['Yellow', '#facc15'], ['Light Green', '#86efac'], ['Green', '#16a34a'], ['Teal', '#14b8a6'], ['Blue', '#2563eb'], ['Dark Blue', '#123b66'], ['Purple (Violet)', '#8b5cf6']];
+const STANDARD_COLORS = [['Dark Red', '#8b0000'], ['Red', '#dc2626'], ['Orange', '#f97316'], ['Yellow', '#facc15'], ['Light Green', '#86efac'], ['Green', '#16a34a'], ['Teal', '#14b8a6'], ['Blue', '#2563eb'], ['Dark Blue', '#123b66'], ['Purple', '#8b5cf6']];
 const CALENDAR_PIXELS_PER_MINUTE = 2;
 function defaultCalendarStart() { const current = new Date(); const currentMinutes = current.getHours() * 60 + current.getMinutes(); return Math.min(Math.floor(currentMinutes / 30) * 30, 8 * 60); }
 const DEFAULT_STATE = {
@@ -39,6 +39,9 @@ async function loadState() {
   state = { ...clone(DEFAULT_STATE), ...(stored.todoState || {}) };
   state.notes = Array.isArray(state.notes) && state.notes.length ? state.notes : clone(DEFAULT_STATE.notes);
   state.tasks = Array.isArray(state.tasks) ? state.tasks : [];
+  const taskCountBeforeCleanup = state.tasks.length;
+  state.tasks = state.tasks.filter(task => !isFromPreviousDay(task));
+  const removedPreviousDayTasks = state.tasks.length !== taskCountBeforeCleanup;
   state.settings = { ...clone(DEFAULT_STATE.settings), ...(state.settings || {}) };
   applyTheme(state.settings.theme);
   applyBackgroundImage(state.settings.backgroundImageUrl);
@@ -48,9 +51,9 @@ async function loadState() {
     state.calendar.visibleEnd = 1440;
     state.calendar.visibleStartUserSet = false;
   }
-  $('#background-image-url').value = state.settings.backgroundImageUrl || '';
   activeNoteId = state.notes[0].id;
   lastSavedStateJson = JSON.stringify(state);
+  if (removedPreviousDayTasks) await chrome.storage.local.set({ todoState: state });
   renderAll();
   startClockLoops();
 }
@@ -191,9 +194,11 @@ function applyTypingShortcut(editor) {
 }
 
 function dayBounds() { const start = new Date(); start.setHours(0, 0, 0, 0); return { start, end: new Date(start.getTime() + 86400000) }; }
+function isFromPreviousDay(task) { const start = new Date(task.start); if (!isValidDate(start)) return false; const today = new Date(); today.setHours(0, 0, 0, 0); return start < today; }
 function taskDisplayEnd(task) { return task.status === 'extended' ? Math.min(now(), new Date(task.start).setHours(23, 59, 59, 999)) : new Date(task.end).getTime(); }
 function renderTasks() {
-  syncExtendedTasks(); const calendar = $('#day-calendar'); const existingBody = calendar.querySelector('.calendar-day-body'); if (existingBody) calendarScrollTop = existingBody.scrollTop; calendar.replaceChildren(); const day = dayBounds(); const startMinutes = Math.max(0, Math.min(1439, state.calendar.visibleStart ?? defaultCalendarStart())); const endMinutes = 1440; const range = endMinutes - startMinutes;
+  const taskCountBeforeCleanup = state.tasks.length; state.tasks = state.tasks.filter(task => !isFromPreviousDay(task)); if (state.tasks.length !== taskCountBeforeCleanup) saveState('Previous-day tasks removed');
+  syncExtendedTasks(); const calendar = $('#day-calendar'); const existingBody = calendar.querySelector('.calendar-day-body'); if (existingBody) calendarScrollTop = existingBody.scrollTop; calendar.replaceChildren(); renderTaskColorChart(); const day = dayBounds(); const startMinutes = Math.max(0, Math.min(1439, state.calendar.visibleStart ?? defaultCalendarStart())); const endMinutes = 1440; const range = endMinutes - startMinutes;
   const header = document.createElement('div'); header.className = 'calendar-day-header';
   const dayLabel = document.createElement('strong'); dayLabel.textContent = day.start.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
   header.append(dayLabel, createVisibleTimeEditor(startMinutes)); calendar.appendChild(header);
@@ -207,6 +212,26 @@ function renderTasks() {
   state.tasks.filter(task => isValidDate(task.start) && isValidDate(task.end) && sameLocalDay(new Date(task.start), new Date(task.end)) && sameLocalDay(new Date(task.start), day.start) && new Date(task.start) < day.end && taskDisplayEnd(task) > day.start.getTime() + startMinutes * 60000 && new Date(task.start).getTime() < day.start.getTime() + endMinutes * 60000).forEach(task => renderTaskEvent(events, task, day.start, startMinutes, endMinutes));
   const marker = document.createElement('b'); marker.className = 'current-time-marker'; marker.style.top = `${calendarMinuteOffset((now() - day.start.getTime()) / 60000, startMinutes)}px`;
   timeline.append(axis, grid, events, marker); body.appendChild(timeline); calendar.appendChild(body); body.scrollTop = calendarScrollTop; body.addEventListener('scroll', () => { calendarScrollTop = body.scrollTop; });
+}
+function renderTaskColorChart() {
+  const chart = $('#task-color-chart'); chart.replaceChildren();
+  const totals = new Map();
+  state.tasks.forEach(task => {
+    const start = new Date(task.start).getTime(); const end = new Date(task.end).getTime(); const duration = end - start;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || duration <= 0) return;
+    const color = /^#[0-9a-f]{6}$/i.test(task.color || '') ? task.color.toLowerCase() : '#2f6fae';
+    totals.set(color, (totals.get(color) || 0) + duration);
+  });
+  const entries = [...totals.entries()].sort((first, second) => second[1] - first[1]);
+  const totalDuration = entries.reduce((sum, entry) => sum + entry[1], 0);
+  if (!totalDuration) return;
+  const heading = document.createElement('h3'); heading.textContent = 'Task time by color'; chart.appendChild(heading);
+  let angle = 0; const stops = [];
+  entries.forEach(([color, duration]) => { const percentage = duration / totalDuration * 100; stops.push(`${color} ${angle}deg ${angle + percentage * 3.6}deg`); angle += percentage * 3.6; });
+  const pie = document.createElement('div'); pie.className = 'task-color-pie'; pie.style.background = `conic-gradient(${stops.join(', ')})`; pie.setAttribute('role', 'img'); pie.setAttribute('aria-label', 'Task time distribution by color'); chart.appendChild(pie);
+  const legend = document.createElement('ul'); legend.className = 'task-color-legend';
+  entries.forEach(([color, duration]) => { const item = document.createElement('li'); const swatch = document.createElement('span'); swatch.className = 'task-color-legend-swatch'; swatch.style.backgroundColor = color; const label = document.createElement('span'); const colorName = STANDARD_COLORS.find(([, value]) => value.toLowerCase() === color)?.[0] || `Custom (${color})`; label.textContent = `${colorName} · ${(duration / totalDuration * 100).toFixed(1)}%`; item.append(swatch, label); legend.appendChild(item); });
+  chart.appendChild(legend);
 }
 function calendarMinuteOffset(minute, visibleStart) { return Math.max(0, minute - visibleStart) * CALENDAR_PIXELS_PER_MINUTE; }
 function sameLocalDay(first, second) { return first.getFullYear() === second.getFullYear() && first.getMonth() === second.getMonth() && first.getDate() === second.getDate(); }
@@ -283,19 +308,23 @@ function syncExtendedTasks() {
   if (changed) saveState();
 }
 function editTask(task) {
-  taskBeingEdited = task; const form = $('#task-form'); form.hidden = false; form.elements.title.value = task.title || ''; form.elements.description.value = task.description || ''; form.elements.color.value = task.color || '#2f6fae'; form.elements.startDate.value = localInputValue(new Date(task.start)).slice(0, 10); form.elements.endDate.value = localInputValue(new Date(task.end)).slice(0, 10); setTimeFields(form, 'start', new Date(task.start)); setTimeFields(form, 'end', new Date(task.end));
+  taskBeingEdited = task; const form = $('#task-form'); form.hidden = false; form.elements.title.value = task.title || ''; form.elements.description.value = task.description || ''; form.elements.color.value = task.color || '#2f6fae'; syncTaskColorPicker(); setTimeFields(form, 'start', new Date(task.start)); setTimeFields(form, 'end', new Date(task.end));
   $('#task-meta').textContent = task.actualEnd ? `Scheduled: ${formatDate(new Date(task.end))} · Actual end: ${formatDate(new Date(task.actualEnd))}` : `Scheduled: ${formatDate(new Date(task.start))} - ${formatDate(new Date(task.end))}`;
-  const actions = form.querySelector('.form-actions'); actions.querySelectorAll('.task-action').forEach(item => item.remove()); if (task.status !== 'completed') { const end = button(task.status === 'extended' ? 'End task' : 'Finish task', task.status === 'extended' ? 'danger task-action' : 'success task-action'); end.addEventListener('click', () => finishTask(task)); actions.prepend(end); } const remove = button('Delete task', 'danger task-action'); remove.addEventListener('click', () => deleteTask(task)); actions.prepend(remove); document.querySelector('[data-view="calendar-view"]').click(); window.scrollTo({ top: 0, behavior: 'smooth' });
+  const actions = form.querySelector('.form-actions'); actions.querySelectorAll('.task-action').forEach(item => item.remove()); if (task.status !== 'completed') { const end = button('Finish Task', 'success task-action'); end.addEventListener('click', () => finishTask(task)); actions.prepend(end); } const remove = button('Delete task', 'danger task-action'); remove.addEventListener('click', () => deleteTask(task)); actions.prepend(remove); document.querySelector('[data-view="calendar-view"]').click(); window.scrollTo({ top: 0, behavior: 'smooth' });
 }
-function finishTask(task) { task.status = 'completed'; task.completedAt = new Date().toISOString(); task.actualEnd = task.completedAt; saveState('Task ended'); renderTasks(); editTask(task); }
+function finishTask(task) { const endedAt = new Date().toISOString(); task.status = 'completed'; task.end = endedAt; task.completedAt = endedAt; task.actualEnd = endedAt; saveState('Task ended'); renderTasks(); editTask(task); }
 function deleteTask(task) { if (!confirm(`Delete "${task.title}"?`)) return; state.tasks = state.tasks.filter(item => item.id !== task.id); taskBeingEdited = null; $('#task-form').hidden = true; saveState('Task deleted'); renderTasks(); }
+function syncTaskColorPicker() { const picker = $('.task-color-picker'); const input = document.querySelector('#task-form [name="color"]'); if (!picker || !input) return; picker.querySelectorAll('.standard-color').forEach(button => button.classList.toggle('is-selected', button.dataset.color.toLowerCase() === input.value.toLowerCase())); }
+function setupTaskColorPicker() { const picker = $('.task-color-picker'); const input = document.querySelector('#task-form [name="color"]'); if (!picker || !input) return; const colors = picker.querySelector('.standard-colors'); STANDARD_COLORS.forEach(([name, value]) => { const swatch = button('', 'standard-color'); swatch.dataset.color = value; swatch.title = name; swatch.setAttribute('aria-label', name); swatch.style.backgroundColor = value; swatch.addEventListener('click', () => { input.value = value; syncTaskColorPicker(); }); colors.appendChild(swatch); }); picker.querySelector('.custom-color-button').addEventListener('click', () => input.click()); input.addEventListener('input', syncTaskColorPicker); syncTaskColorPicker(); }
 function formatMinutes(minutes) { const dayOffset = Math.floor(minutes / 1440); const value = minutes % 1440; const hour = Math.floor(value / 60); const minute = value % 60; const suffix = hour >= 12 ? 'PM' : 'AM'; return `${hour % 12 || 12}:${String(minute).padStart(2, '0')} ${suffix}${dayOffset ? ` (+${dayOffset}d)` : ''}`; }
 function formatDate(date) { return date.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }); }
 function formatClock(date) { return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
 function isValidDate(value) { const date = value instanceof Date ? value : new Date(value); return !Number.isNaN(date.getTime()); }
 function localInputValue(date) { if (!isValidDate(date)) return ''; const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 16); }
+function timeInputValue(date) { const hour = date.getHours(); return `${hour % 12 || 12}:${String(date.getMinutes()).padStart(2, '0')}`; }
+function setEndTimePlaceholder(form, start) { const end = new Date(start.getTime() + 60 * 60000); form.elements.endTime.placeholder = timeInputValue(end); form.elements.endPeriod.value = end.getHours() >= 12 ? 'PM' : 'AM'; }
 function setTimeFields(form, prefix, date) { const value = localInputValue(date); const [hourText, minute] = value.slice(11).split(':'); const hour = Number(hourText); form.elements[`${prefix}Time`].value = `${hour % 12 || 12}:${minute}`; form.elements[`${prefix}Period`].value = hour >= 12 ? 'PM' : 'AM'; }
-function parseDateTime(dateValue, timeValue, period) { const match = String(timeValue).trim().match(/^(\d{1,2}):([0-5]\d)$/); if (!dateValue || !match || Number(match[1]) < 1 || Number(match[1]) > 12) return null; const date = new Date(`${dateValue}T${String((Number(match[1]) % 12) + (period === 'PM' ? 12 : 0)).padStart(2, '0')}:${match[2]}`); return isValidDate(date) ? date : null; }
+function parseTimeOnDate(date, timeValue, period) { const match = String(timeValue).trim().match(/^(\d{1,2}):([0-5]\d)$/); if (!match || Number(match[1]) < 1 || Number(match[1]) > 12) return null; const result = new Date(date); result.setHours((Number(match[1]) % 12) + (period === 'PM' ? 12 : 0), Number(match[2]), 0, 0); return isValidDate(result) ? result : null; }
 function overlaps(start, end, excludeId = null) { return state.tasks.some(task => task.id !== excludeId && task.status !== 'completed' && new Date(task.start) < end && new Date(task.end) > start); }
 
 function renderLaps() { $('#lap-list').replaceChildren(...state.stopwatch.laps.map((lap, index) => { const item = document.createElement('label'); item.className = 'lap-row'; item.innerHTML = `<span>Lap ${index + 1} · ${formatDuration(lap.elapsed)}</span>`; const input = document.createElement('input'); input.placeholder = 'Description'; input.value = lap.description || ''; input.addEventListener('input', () => { lap.description = input.value; saveState(); }); item.appendChild(input); return item; })); }
@@ -305,6 +334,7 @@ function updateCountdown() { const remaining = state.countdown.endsAt ? Math.max
 function startClockLoops() { clearInterval(stopwatchInterval); clearInterval(countdownInterval); clearInterval(calendarInterval); stopwatchInterval = setInterval(updateStopwatch, 1000); countdownInterval = setInterval(updateCountdown, 1000); calendarInterval = setInterval(renderTasks, 30000); }
 
 function wireEvents() {
+  setupTaskColorPicker();
   $('#theme-toggle')?.addEventListener('click', () => {
     const nextTheme = state.settings.theme === 'light' ? 'dark' : 'light';
     state.settings.theme = nextTheme;
@@ -318,13 +348,13 @@ function wireEvents() {
     saveState();
   });
   document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => { document.querySelectorAll('.tab').forEach(item => item.classList.toggle('is-active', item === tab)); document.querySelectorAll('.view').forEach(view => view.classList.toggle('is-visible', view.id === tab.dataset.view)); }));
-  $('#new-task').addEventListener('click', () => { taskBeingEdited = null; const form = $('#task-form'); form.reset(); form.hidden = false; $('#task-meta').textContent = ''; const start = new Date(); form.elements.startDate.value = localInputValue(start).slice(0, 10); form.elements.endDate.value = ''; setTimeFields(form, 'start', start); form.elements.endTime.value = ''; form.querySelector('.form-actions').querySelectorAll('.task-action').forEach(item => item.remove()); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+  $('#new-task').addEventListener('click', () => { taskBeingEdited = null; const form = $('#task-form'); form.reset(); syncTaskColorPicker(); form.hidden = false; $('#task-meta').textContent = ''; const start = new Date(); setTimeFields(form, 'start', start); form.elements.endTime.value = ''; setEndTimePlaceholder(form, start); form.querySelector('.form-actions').querySelectorAll('.task-action').forEach(item => item.remove()); window.scrollTo({ top: 0, behavior: 'smooth' }); });
   $('#cancel-task').addEventListener('click', () => { taskBeingEdited = null; $('#task-form').hidden = true; });
   $('#task-form').addEventListener('submit', event => {
-    event.preventDefault(); const form = event.currentTarget; const start = form.elements.startMode.value === 'now' && !taskBeingEdited ? new Date() : parseDateTime(form.elements.startDate.value, form.elements.startTime.value, form.elements.startPeriod.value); const end = parseDateTime(form.elements.endDate.value, form.elements.endTime.value, form.elements.endPeriod.value);
-    if (!start || !end) return setStatus('Enter valid start and end date/time values.'); if (start < new Date() && !taskBeingEdited) return setStatus('A new task must start now or in the future.'); if (!sameLocalDay(start, end)) return setStatus('Tasks must start and end on the same day.'); if (end <= start) return setStatus('End time must be after the start time.'); if (end.getTime() - start.getTime() >= 86400000) return setStatus('Tasks cannot be longer than one day.'); if (overlaps(start, end, taskBeingEdited?.id)) return setStatus('Tasks cannot overlap.');
+    event.preventDefault(); const form = event.currentTarget; const taskDate = taskBeingEdited ? new Date(taskBeingEdited.start) : new Date(); const enteredStart = parseTimeOnDate(taskDate, form.elements.startTime.value, form.elements.startPeriod.value); const endInput = form.elements.endTime.value.trim(); const end = endInput ? parseTimeOnDate(taskDate, endInput, form.elements.endPeriod.value) : enteredStart ? new Date(enteredStart.getTime() + 60 * 60000) : null; const current = new Date(); const startsNow = !taskBeingEdited && enteredStart && enteredStart.getHours() === current.getHours() && enteredStart.getMinutes() === current.getMinutes(); const start = startsNow ? current : enteredStart;
+    if (!start || !end) return setStatus('Enter valid start and end time values.'); if (!taskBeingEdited && start < current) return setStatus('A new task must start now or in the future.'); if (!sameLocalDay(start, end)) return setStatus('Tasks must start and end on the same day.'); if (end <= start) return setStatus('End time must be after the start time.'); if (end.getTime() - start.getTime() >= 86400000) return setStatus('Tasks cannot be longer than one day.'); if (overlaps(start, end, taskBeingEdited?.id)) return setStatus('Tasks cannot overlap.');
     const values = { title: form.elements.title.value.trim(), description: form.elements.description.value.trim(), color: form.elements.color.value, start: start.toISOString(), end: end.toISOString() }; if (!values.title) return setStatus('Enter a task title.');
-    if (taskBeingEdited) Object.assign(taskBeingEdited, values); else state.tasks.push({ id: crypto.randomUUID(), ...values, status: form.elements.startMode.value === 'now' ? 'active' : 'scheduled', completedAt: null });
+    if (taskBeingEdited) Object.assign(taskBeingEdited, values); else state.tasks.push({ id: crypto.randomUUID(), ...values, status: startsNow ? 'active' : 'scheduled', completedAt: null });
     saveState('Task saved'); taskBeingEdited = null; form.reset(); form.hidden = true; renderTasks();
   });
   $('#stopwatch-toggle').addEventListener('click', () => { if (state.stopwatch.startedAt) { state.stopwatch.elapsed += now() - state.stopwatch.startedAt; state.stopwatch.startedAt = null; $('#stopwatch-toggle').textContent = 'Resume'; } else { state.stopwatch.startedAt = now(); $('#stopwatch-toggle').textContent = 'Pause'; } saveState(); });
@@ -337,28 +367,6 @@ function wireEvents() {
 function wireImportExport() {
   $('#export-all').addEventListener('click', () => downloadJson('offline-workspace-backup.json', state)); $('#export-notes').addEventListener('click', () => downloadJson('notes.json', { notes: state.notes })); $('#export-tasks').addEventListener('click', () => downloadJson('schedules.json', { tasks: state.tasks })); $('#export-settings').addEventListener('click', () => downloadJson('settings.json', { settings: state.settings })); $('#export-timers').addEventListener('click', () => downloadJson('timers.json', { stopwatch: state.stopwatch, countdown: state.countdown }));
   $('#import-all').addEventListener('change', importJson); $('#import-notes').addEventListener('change', event => importCategory(event, 'notes')); $('#import-tasks').addEventListener('change', event => importCategory(event, 'tasks')); $('#import-settings').addEventListener('change', event => importCategory(event, 'settings')); $('#import-timers').addEventListener('change', event => importCategory(event, 'timers'));
-  const settingsForm = $('#settings-form');
-  settingsForm.addEventListener('submit', event => {
-    event.preventDefault();
-    const value = $('#background-image-url').value.trim();
-    if (!value) return setStatus('Enter a background image URL or choose Clear.');
-    try {
-      const url = new URL(value);
-      if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Unsupported protocol');
-    } catch {
-      setStatus('Enter a valid http or https image URL.');
-      return;
-    }
-    state.settings.backgroundImageUrl = value;
-    applyBackgroundImage(value);
-    saveState('Background image saved');
-  });
-  $('#clear-background-image').addEventListener('click', () => {
-    delete state.settings.backgroundImageUrl;
-    $('#background-image-url').value = '';
-    applyBackgroundImage('');
-    saveState('Background image cleared');
-  });
 }
 function downloadJson(name, data) { const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })); link.download = name; link.click(); URL.revokeObjectURL(link.href); }
 async function readJson(event) { const file = event.target.files[0]; event.target.value = ''; if (!file) return null; try { return JSON.parse(await file.text()); } catch { setStatus('Import failed: choose a valid JSON file.'); return null; } }

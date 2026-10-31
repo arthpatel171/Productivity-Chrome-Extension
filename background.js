@@ -20,6 +20,10 @@ async function getState() {
 }
 async function scheduleAllTasks() {
   const state = await getState();
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const currentTasks = state.tasks || [];
+  state.tasks = currentTasks.filter(task => { const start = new Date(task.start); return Number.isNaN(start.getTime()) || start >= today; });
+  if (state.tasks.length !== currentTasks.length) await chrome.storage.local.set({ todoState: state });
   const alarms = await chrome.alarms.getAll();
   await Promise.all(alarms.filter(alarm => alarm.name.startsWith('task-start-') || alarm.name.startsWith('task-end-') || alarm.name === COUNTDOWN_ALARM || alarm.name === TASK_TICK).map(alarm => chrome.alarms.clear(alarm.name)));
   if (state.settings?.enabled === false) return;
@@ -28,7 +32,7 @@ async function scheduleAllTasks() {
     const start = new Date(task.start).getTime();
     const end = new Date(task.end).getTime();
     if (start > Date.now()) await chrome.alarms.create(START_ALARM(task.id), { when: start });
-    if (task.status !== 'extended' && end > Date.now()) await chrome.alarms.create(END_ALARM(task.id), { when: end });
+    if (task.status !== 'extended' && end + 60000 > Date.now()) await chrome.alarms.create(END_ALARM(task.id), { when: end + 60000 });
   }
   if (state.tasks?.some(task => task.status === 'extended')) await chrome.alarms.create(TASK_TICK, { periodInMinutes: 1 });
   if (state.countdown?.endsAt > Date.now()) await chrome.alarms.create(COUNTDOWN_ALARM, { when: state.countdown.endsAt });
@@ -67,7 +71,7 @@ async function checkMissedTasks() {
   const current = Date.now();
   for (const task of state.tasks || []) {
     if (task.status === 'completed') continue;
-    if (new Date(task.end).getTime() <= current && !task.reminded?.end) {
+    if (new Date(task.end).getTime() + 60000 <= current && !task.reminded?.end) {
       task.reminded = { ...(task.reminded || {}), end: true };
       sendToActiveTab({ type: 'REMINDER', task: { ...task, kind: 'end' } });
     }
@@ -139,7 +143,7 @@ async function handleMessage(message) {
     const state = await getState();
     const task = (state.tasks || []).find(item => item.id === message.taskId);
     if (!task) return;
-    if (message.action === 'finish') { task.status = 'completed'; task.actualEnd = new Date().toISOString(); task.completedAt = task.actualEnd; }
+    if (message.action === 'finish') { task.status = 'completed'; task.end = new Date().toISOString(); task.actualEnd = task.end; task.completedAt = task.end; }
     if (message.action === 'extend') task.status = 'extended';
     if (message.action === 'extend') shiftExtendedTasks(state);
     await chrome.storage.local.set({ todoState: state });

@@ -120,9 +120,15 @@ Each task can contain:
 
 Task creation and editing:
 
-- Users can choose **Start now** or **Schedule later**.
-- A task must have an end date and end time.
+- The end-time field is optional. Its placeholder shows one hour after the
+  current time, and leaving it blank sets the end time to one hour after the
+  entered start time.
+- Task colors offer standard color swatches and a custom color picker button.
 - Start and end times are entered as clock text with a separate AM/PM selector.
+- New tasks use the current local day; the start and end date fields are not
+  shown.
+- If the entered start time is the current minute, the task starts immediately.
+  If it is later than the current time, the task is scheduled for later.
 - Start time defaults to the current local time when the new-task flow is opened.
 - The end time must be after the start time.
 - Tasks must begin on or after the current time when scheduled.
@@ -136,6 +142,13 @@ Task creation and editing:
 Calendar display:
 
 - The Calendar tab displays the current local day.
+- A pie chart appears below the calendar while the Calendar tab is open when
+  tasks exist. It groups all valid tasks, whether scheduled, active, extended,
+  or completed, by task color and assigns each color a percentage based on the
+  task's scheduled duration. For example, three hours of red tasks and one
+  hour of blue tasks produce a 75% red and 25% blue chart. The chart legend uses
+  the standard color names from the task form, and labels non-standard colors as
+  custom colors.
 - The calendar has a vertical time axis and 30-minute grid intervals.
 - The current time is shown with a current-time marker.
 - The timeline uses 2 pixels per minute, or 60 pixels per 30-minute interval.
@@ -158,8 +171,9 @@ Task timing and reminders:
 
 - Scheduled tasks use persisted timestamps and browser alarms.
 - A task remains active after its scheduled end until the user chooses an action.
-- When a scheduled end is reached, the active tab receives a reminder overlay with
-  **Finish** and **Extend** actions.
+- One minute after a scheduled end is reached, the active tab receives a reminder
+  overlay with **Finish** and **Extend** actions, and the task enters extended
+  status if it is not finished.
 - When a scheduled task starts, the active tab receives a reminder overlay with a
   **Dismiss** action. Dismissing this start reminder removes the overlay without
   changing the task's status or schedule.
@@ -171,6 +185,9 @@ Task timing and reminders:
   while preserving later task durations.
 - Tasks and their stored times remain persisted when the workspace is closed or
   reloaded.
+- Tasks whose start date is before the current local day are automatically
+  deleted from persisted workspace state, calendar views, popup data, exports,
+  and background scheduling.
 
 ## 8. Extension popup
 
@@ -202,8 +219,9 @@ field or a separate settings page.
 
 ## 10. Settings and appearance
 
-- The workspace includes a Settings dropdown beside the Import/Export dropdown.
-- Users can choose between a Dark theme and a Light theme using a header toggle button or the Settings dropdown.
+- The workspace includes an Import/Export dropdown and a header theme toggle.
+- Users can choose between a Dark theme and a Light theme using the header toggle
+  button.
 - The extension popup also provides a theme toggle button and synchronizes theme changes.
 - Theme preferences are saved to extension storage and persist across sessions.
 - Theme changes transition smoothly with animated color and background transitions without layout shifts or content re-rendering.
