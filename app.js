@@ -11,7 +11,7 @@ const FONT_OPTIONS = [
 ];
 const STANDARD_COLORS = [['Dark Red', '#8b0000'], ['Red', '#dc2626'], ['Orange', '#f97316'], ['Yellow', '#facc15'], ['Light Green', '#86efac'], ['Green', '#16a34a'], ['Teal', '#14b8a6'], ['Blue', '#2563eb'], ['Dark Blue', '#123b66'], ['Purple', '#8b5cf6']];
 const CALENDAR_PIXELS_PER_MINUTE = 2;
-function defaultCalendarStart() { const current = new Date(); const currentMinutes = current.getHours() * 60 + current.getMinutes(); return Math.min(Math.floor(currentMinutes / 30) * 30, 8 * 60); }
+function defaultCalendarStart(tasks = []) { const current = new Date(); const currentMinutes = current.getHours() * 60 + current.getMinutes(); const starts = [Math.floor(currentMinutes / 30) * 30]; tasks.filter(task => isValidDate(task.start) && sameLocalDay(new Date(task.start), current)).forEach(task => { const start = new Date(task.start); starts.push(Math.floor((start.getHours() * 60 + start.getMinutes()) / 30) * 30); }); return Math.min(...starts, 8 * 60); }
 const DEFAULT_STATE = {
   notes: [{ id: crypto.randomUUID(), title: 'Welcome note', blocks: [{ id: crypto.randomUUID(), title: 'Ideas', html: '<p>Start writing here.</p>', collapsed: false, width: 100, height: 180, fontFamily: 'Arial, sans-serif', customColors: [] }] }],
   tasks: [], stopwatch: { startedAt: null, elapsed: 0, laps: [] },
@@ -47,7 +47,7 @@ async function loadState() {
   applyBackgroundImage(state.settings.backgroundImageUrl);
   state.calendar = { ...clone(DEFAULT_STATE.calendar), ...(state.calendar || {}) };
   if (!stored.todoState?.calendar || !state.calendar.visibleStartUserSet || (state.calendar.visibleStart === 0 && state.calendar.visibleEnd === 1440)) {
-    state.calendar.visibleStart = defaultCalendarStart();
+    state.calendar.visibleStart = defaultCalendarStart(state.tasks);
     state.calendar.visibleEnd = 1440;
     state.calendar.visibleStartUserSet = false;
   }
@@ -198,7 +198,7 @@ function isFromPreviousDay(task) { const start = new Date(task.start); if (!isVa
 function taskDisplayEnd(task) { return task.status === 'extended' ? Math.min(now(), new Date(task.start).setHours(23, 59, 59, 999)) : new Date(task.end).getTime(); }
 function renderTasks() {
   const taskCountBeforeCleanup = state.tasks.length; state.tasks = state.tasks.filter(task => !isFromPreviousDay(task)); if (state.tasks.length !== taskCountBeforeCleanup) saveState('Previous-day tasks removed');
-  syncExtendedTasks(); const calendar = $('#day-calendar'); const existingBody = calendar.querySelector('.calendar-day-body'); if (existingBody) calendarScrollTop = existingBody.scrollTop; calendar.replaceChildren(); renderTaskColorChart(); const day = dayBounds(); const startMinutes = Math.max(0, Math.min(1439, state.calendar.visibleStart ?? defaultCalendarStart())); const endMinutes = 1440; const range = endMinutes - startMinutes;
+  syncExtendedTasks(); const calendar = $('#day-calendar'); const existingBody = calendar.querySelector('.calendar-day-body'); if (existingBody) calendarScrollTop = existingBody.scrollTop; calendar.replaceChildren(); renderTaskColorChart(); const day = dayBounds(); const configuredStart = state.calendar.visibleStartUserSet ? state.calendar.visibleStart : defaultCalendarStart(state.tasks); const startMinutes = Math.max(0, Math.min(1439, configuredStart)); const endMinutes = 1440; const range = endMinutes - startMinutes;
   const header = document.createElement('div'); header.className = 'calendar-day-header';
   const dayLabel = document.createElement('strong'); dayLabel.textContent = day.start.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
   header.append(dayLabel, createVisibleTimeEditor(startMinutes)); calendar.appendChild(header);
