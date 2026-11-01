@@ -70,7 +70,7 @@ function applyTheme(value) {
   document.documentElement.setAttribute('data-theme', current);
   const toggle = $('#theme-toggle');
   if (toggle) {
-    toggle.textContent = current === 'light' ? '🌙 Dark' : '☀️ Light';
+    toggle.textContent = current === 'light' ? '☀️' : '🌙';
     toggle.setAttribute('aria-label', `Switch to ${current === 'light' ? 'dark' : 'light'} theme`);
     toggle.title = `Switch to ${current === 'light' ? 'dark' : 'light'} theme`;
   }

@@ -34,11 +34,11 @@
 [data-theme="light"] {
   color-scheme: light;
   --background-gradient:
-    radial-gradient(circle at 18% 24%, rgba(255, 255, 255, .78), transparent 30%),
-    radial-gradient(circle at 82% 72%, rgba(255, 255, 255, .62), transparent 34%),
-    radial-gradient(circle at 54% 92%, rgba(255, 255, 255, .46), transparent 28%),
-    linear-gradient(135deg, #f2f2d4 0%, #f7f4d9 48%, #f2f2d4 100%);
-  --bg: #f2f2d4;
+    radial-gradient(circle at 18% 24%, rgba(249, 115, 22, .42), transparent 30%),
+    radial-gradient(circle at 82% 72%, rgba(251, 146, 60, .34), transparent 34%),
+    radial-gradient(circle at 54% 92%, rgba(234, 88, 12, .24), transparent 28%),
+    linear-gradient(135deg, #f7f6f2 0%, #fff8f1 48%, #f7f6f2 100%);
+  --bg: #f7f6f2;
   --ink: #0f172a;
   --muted: #64748b;
   --paper: #ffffff;
@@ -140,7 +140,27 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .app-header, .section-heading, .note-heading, .task-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .header-actions, .button-row, .form-actions, .data-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .header-tools { position: relative; }
-.theme-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.theme-toggle {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: 14px;
+  background: #fde68a;
+  font-size: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform .6s, background .4s, box-shadow .4s;
+  transform-style: preserve-3d;
+}
+.theme-toggle:hover { box-shadow: 0 5px 18px rgba(0, 0, 0, .15); }
+.theme-toggle:active { transform: scale(.9); }
+[data-theme="dark"] .theme-toggle {
+  background: #312e81;
+  transform: rotateY(180deg);
+  box-shadow: 0 0 18px rgba(99, 102, 241, .25);
+}
 .settings-menu, .import-export { position: relative; }
 .settings-menu summary, .import-export summary { cursor: pointer; border: 1px solid var(--line); border-radius: 15px; background-color: var(--blue); color: var(--summary-ink); padding: 9px 13px; box-shadow: 0 7px 0 var(--button-shadow); transition: box-shadow .1s ease, transform .1s ease; }
 .settings-menu summary:active, .import-export summary:active { transform: translateY(7px); box-shadow: 0 0 0 var(--button-shadow); }

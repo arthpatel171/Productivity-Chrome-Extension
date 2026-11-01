@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Title Section</title>
+<title>3D Flip Theme Switch</title>
 
 <style>
 * {
@@ -13,112 +13,73 @@
 
 body {
     margin: 0;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
     font-family: Arial, sans-serif;
     background: #f3f4f6;
     color: #222;
-    transition: background 0.3s, color 0.3s;
+    transition: background 0.4s, color 0.4s;
 }
 
-/* Title section */
-.title-section {
-    display: block;
-    width: 100%;
-    min-height: 100px;
-    background: white;
-    padding: 25px 30px;
-    border-radius: 0 0 12px 12px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-    transition: background 0.3s, box-shadow 0.3s;
-}
-
-.title-section h1 {
-    margin: 0;
-    font-size: 28px;
-    color: #222;
-    transition: color 0.3s;
-}
-
-/* Theme buttons */
-.theme-controls {
-    display: flex;
-    gap: 10px;
-    padding: 25px 30px;
-}
-
-.theme-controls button {
-    padding: 11px 20px;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 14px;
-    background: #e5e7eb;
-    color: #222;
-    transition: 0.2s;
-}
-
-.theme-controls button:hover {
-    transform: translateY(-2px);
-}
-
-.theme-controls button.active {
-    background: #2563eb;
-    color: white;
-}
-
-/* Dark mode */
 body.dark-mode {
     background: #0b1020;
     color: white;
 }
 
-body.dark-mode .title-section {
-    background: #151c30;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+/* Switch */
+.theme-switch {
+    width: 62px;
+    height: 62px;
+    border: none;
+    border-radius: 14px;
+    background: #fde68a;
+    font-size: 28px;
+    cursor: pointer;
+    transition:
+        transform 0.6s,
+        background 0.4s,
+        box-shadow 0.4s;
+    transform-style: preserve-3d;
 }
 
-body.dark-mode .title-section h1 {
-    color: white;
+.theme-switch:hover {
+    box-shadow: 0 5px 18px rgba(0,0,0,0.15);
 }
 
-body.dark-mode .theme-controls button {
-    background: #28334c;
-    color: #cbd5e1;
+.theme-switch:active {
+    transform: scale(0.9);
 }
 
-body.dark-mode .theme-controls button.active {
-    background: #2563eb;
-    color: white;
+/* Dark mode */
+body.dark-mode .theme-switch {
+    background: #312e81;
+    transform: rotateY(180deg);
+    box-shadow: 0 0 18px rgba(99,102,241,0.25);
 }
 </style>
 </head>
 
 <body>
 
-<section class="title-section">
-    <h1>My Website Title</h1>
-</section>
-
-<div class="theme-controls">
-    <button id="lightButton" class="active" onclick="setTheme('light')">
-        Light Mode
-    </button>
-
-    <button id="darkButton" onclick="setTheme('dark')">
-        Dark Mode
-    </button>
-</div>
+<button class="theme-switch" id="themeSwitch"
+        onclick="toggleTheme()" aria-label="Switch to dark mode">
+    ☀️
+</button>
 
 <script>
-function setTheme(theme) {
-    const isDark = theme === "dark";
+function toggleTheme() {
+    const isDark = document.body.classList.toggle("dark-mode");
 
-    document.body.classList.toggle("dark-mode", isDark);
+    const button = document.getElementById("themeSwitch");
 
-    document.getElementById("lightButton")
-        .classList.toggle("active", !isDark);
+    button.textContent = isDark ? "🌙" : "☀️";
 
-    document.getElementById("darkButton")
-        .classList.toggle("active", isDark);
+    button.setAttribute(
+        "aria-label",
+        isDark ? "Switch to light mode" : "Switch to dark mode"
+    );
 }
 </script>
 

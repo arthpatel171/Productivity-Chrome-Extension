@@ -434,7 +434,7 @@ Popup task status:
 - Theme state is stored in `chrome.storage.local`.
 - Theme state is synchronized between the popup and workspace through storage
   changes.
-- The light theme background is `#f2f2d4`.
+- The light theme background is `#f7f6f2`.
 - The dark theme background is `#020011`.
 - Theme-sensitive colors transition over 0.3 seconds.
 - Theme transitions do not intentionally re-render the workspace layout.
