@@ -158,7 +158,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .theme-toggle:active { transform: scale(.9); }
 [data-theme="dark"] .theme-toggle {
   background: #312e81;
-  transform: rotateY(180deg);
   box-shadow: 0 0 18px rgba(99, 102, 241, .25);
 }
 .settings-menu, .import-export { position: relative; }

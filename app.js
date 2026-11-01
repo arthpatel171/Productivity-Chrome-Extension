@@ -43,7 +43,7 @@ async function loadState() {
   state.tasks = state.tasks.filter(task => !isFromPreviousDay(task));
   const removedPreviousDayTasks = state.tasks.length !== taskCountBeforeCleanup;
   state.settings = { ...clone(DEFAULT_STATE.settings), ...(state.settings || {}) };
-  applyTheme(state.settings.theme);
+  applyTheme(state.settings.theme, false);
   applyBackgroundImage(state.settings.backgroundImageUrl);
   state.calendar = { ...clone(DEFAULT_STATE.calendar), ...(state.calendar || {}) };
   if (!stored.todoState?.calendar || !state.calendar.visibleStartUserSet || (state.calendar.visibleStart === 0 && state.calendar.visibleEnd === 1440)) {
@@ -65,12 +65,15 @@ async function saveState(message) {
   if (message) setStatus(message);
 }
 function setStatus(message) { const status = $('#app-status'); if (status) status.textContent = message; }
-function applyTheme(value) {
+function applyTheme(value, animate = true) {
   const current = value === 'light' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', current);
   const toggle = $('#theme-toggle');
   if (toggle) {
     toggle.textContent = current === 'light' ? '☀️' : '🌙';
+    if (!animate) toggle.style.transition = 'none';
+    toggle.style.transform = current === 'dark' ? 'rotateY(180deg)' : 'rotateY(0deg)';
+    if (!animate) requestAnimationFrame(() => { toggle.style.transition = ''; });
     toggle.setAttribute('aria-label', `Switch to ${current === 'light' ? 'dark' : 'light'} theme`);
     toggle.title = `Switch to ${current === 'light' ? 'dark' : 'light'} theme`;
   }

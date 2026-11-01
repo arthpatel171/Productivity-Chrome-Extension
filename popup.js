@@ -3,12 +3,15 @@ let state;
 let lastSavedStateJson = '';
 const $ = selector => document.querySelector(selector);
 
-function applyTheme(theme) {
+function applyTheme(theme, animate = true) {
   const current = theme === 'light' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', current);
   const toggle = $('#theme-toggle');
   if (toggle) {
     toggle.textContent = current === 'light' ? '☀️' : '🌙';
+    if (!animate) toggle.style.transition = 'none';
+    toggle.style.transform = current === 'dark' ? 'rotateY(180deg)' : 'rotateY(0deg)';
+    if (!animate) requestAnimationFrame(() => { toggle.style.transition = ''; });
     toggle.title = `Switch to ${current === 'light' ? 'dark' : 'light'} theme`;
     toggle.setAttribute('aria-label', `Switch to ${current === 'light' ? 'dark' : 'light'} theme`);
   }
@@ -19,7 +22,7 @@ async function load() {
   state = result.todoState || { settings: DEFAULT_SETTINGS, tasks: [], countdown: { endsAt: null } };
   state.settings = { ...DEFAULT_SETTINGS, ...(state.settings || {}) };
   lastSavedStateJson = JSON.stringify(state);
-  applyTheme(state.settings.theme);
+  applyTheme(state.settings.theme, false);
   $('#enabled').checked = state.settings.enabled;
   renderStatus();
 }
