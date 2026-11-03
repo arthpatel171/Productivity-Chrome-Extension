@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">Offline Workspace logo</title>
+  <description id="description">A minimal light-blue calendar with a check mark on a black background.</description>
+  <rect width="512" height="512" rx="112" fill="#05070a"/>
+  <rect x="112" y="112" width="288" height="288" rx="56" fill="#7dd3fc"/>
+  <path d="M112 190h288" stroke="#05070a" stroke-width="28"/>
+  <path d="M184 88v72M328 88v72" stroke="#7dd3fc" stroke-width="30" stroke-linecap="round"/>
+  <path d="m174 292 48 48 116-116" fill="none" stroke="#05070a" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
