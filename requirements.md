@@ -12,16 +12,15 @@ not a list of planned features.
   - `popup.html` and `popup.js` for the browser action popup.
   - `app.html`, `app.js`, and `styles.css` for the full workspace.
   - `background.js` as the Manifest V3 service worker.
-  - `content.js` and `overlay.css` for active-page reminder overlays.
 - User data is stored in the browser's `chrome.storage.local` area.
 - Data is global to the extension and is not separated by website, tab, or
   browser origin.
 - Notes, tasks, timers, theme settings, recent fonts, and calendar settings do
   not require an external server or cloud account.
-- The content script is injected on all URLs except `example.com` and
-  `www.example.com`.
-- The extension requests storage, alarms, tabs, and notifications permissions.
-- The extension's own workspace and popup do not rewrite host-page content.
+- The extension requests storage, alarms, and notifications permissions only.
+- The extension does not require access to or rewrite host-page content.
+- Users can silence browser notifications without disabling timers, task alarms,
+  or task scheduling.
 
 ## 2. Workspace shell and navigation
 
@@ -163,11 +162,8 @@ Typing shortcuts are supported:
 - The service worker schedules the countdown alarm so the countdown can finish
   when the workspace page is closed.
 - When the countdown reaches zero, the service worker marks it as alarm-active
-  and sends a countdown alert to the active tab in the last-focused window.
-- The active-page countdown alert is a floating alarm emoji.
-- Clicking the alarm emoji dismisses the overlay and records the dismissal for
-  that countdown occurrence.
-- The popup displays the remaining countdown time in `HH:MM:SS` format.
+  and processes the corresponding alert according to
+  [`popuprequirements.md`](./popuprequirements.md).
 - Invalid or zero-duration countdowns are rejected with a workspace status
   message.
 
@@ -204,27 +200,31 @@ Task statuses include:
   - Color
   - Optional description
   - Start time
-  - End time
+  - End time (required for tasks that start immediately)
   - Save task
   - Cancel
 - The form does not show start-date or end-date fields.
 - The form does not show Start now or Schedule later radio options.
 - New tasks use the current local day automatically.
-- Start and end times are entered as clock text with separate AM/PM selectors.
+- Start and end times are entered as clock text with compact, vertically stacked
+  AM/PM radio buttons.
 - The start-time field is required.
 - When the new-task form opens, the start time defaults to the current local
   time.
-- The end-time field is optional.
-- The end-time placeholder is dynamically set to one hour after the current
-  time when the new-task form opens.
-- If the end-time field is blank, the task end is automatically set to one hour
-  after the entered start time.
-- The end-time AM/PM selector is set to match the one-hour placeholder.
+- The end-time field is required when the task starts immediately and optional
+  for a task scheduled to start later.
+- The end-time field has no placeholder or prefilled time when the new-task form
+  opens.
+- If the end-time field is blank for a later-scheduled task, the task end is
+  automatically set to one hour after the entered start time.
+- When a new-task form opens, both AM/PM radio groups default to the current
+  local period: AM in the morning and PM in the afternoon or evening.
 - If the entered start time is the current local minute, the new task is
   created as active and starts immediately.
 - If the entered start time is later than the current local time, the new task
   is created as scheduled.
-- New tasks whose start time is earlier than the current time are rejected.
+- New tasks may have a start time earlier than, equal to, or later than the
+  current time.
 - Existing tasks can be opened by clicking their calendar event.
 - Editing an existing task uses the task's stored local day and populates its
   stored start and end times.
@@ -257,7 +257,6 @@ Task statuses include:
 - A **Choose custom color** button opens the browser's native color picker.
 - Standard and custom colors are stored in the task's `color` field.
 - Task events use the stored task color.
-- Popup task cards use the stored task color as their background color.
 - Invalid stored task colors fall back to the default blue task color.
 
 ### 6.4 Completing and deleting tasks
@@ -272,6 +271,8 @@ Task statuses include:
   time, and stores its actual completion time.
 - A completed task no longer shows the Finish Task button.
 - Clicking **Delete task** asks for confirmation before removing the task.
+- The task delete control uses the same compact red trash button as note
+  deletion.
 - Deleted tasks are removed from persisted state and subsequent calendar,
   popup, chart, and export output.
 
@@ -328,10 +329,9 @@ Task statuses include:
 
 ### 7.4 Extended tasks and later tasks
 
-- One minute after a task's scheduled end, if it has not been finished, the
-  task receives the end reminder and enters extended status.
-- The one-minute grace period means the red extended styling does not appear at
-  the exact scheduled end time.
+- At a task's scheduled end, if it has not been finished, the task enters
+  extended status.
+- The red extended styling appears when the task enters extended status.
 - An extended task grows toward the current time while the workspace is
   rendered.
 - The extended task continues until the user clicks its task event and clicks
@@ -347,10 +347,13 @@ Task statuses include:
 
 ### 7.5 Task color pie chart
 
-- A task-color pie chart is placed below the calendar.
+- A **Time by Category** pie chart is placed below the calendar.
 - It is populated while the Calendar view is rendered and is not shown in the
   Notes or Time tools sections.
 - The chart is empty when there are no valid task durations.
+- When there are no valid task durations, the chart displays a grey pie with
+  horizontal white text reading **No day breakdown to display** and a white
+  border. Populated pies do not have that white border.
 - The chart includes valid current-state tasks regardless of whether they are
   scheduled, active, extended, or completed.
 - Each task contributes its scheduled duration, calculated from its stored start
@@ -361,7 +364,7 @@ Task statuses include:
 - For example, three hours of red tasks and one hour of blue tasks produce a
   75% red and 25% blue chart.
 - The legend uses the standard color names from the task form.
-- A non-standard color is labeled as a custom color and includes its hex value.
+- A non-standard color is labeled with the associated task name or names.
 - The chart includes a colored legend marker and percentage for each color.
 
 ### 7.6 Previous-day cleanup
@@ -375,65 +378,25 @@ Task statuses include:
   popup, pie chart, exports, or background scheduling.
 - Tasks with invalid start dates are not removed by this date cleanup alone.
 
-## 8. Reminders and active-page overlays
+## 8. Popup and notification behavior
 
-### 8.1 Task reminders
+All popup triggers, popup destinations, popup content, popup controls, and
+popup-specific task status are defined in
+[`popuprequirements.md`](./popuprequirements.md). This document intentionally
+does not repeat those requirements or define an alternative popup behavior.
 
-- The service worker schedules task-start and delayed task-end alarms.
-- Task-start reminders are delivered only to the active tab in the
-  last-focused browser window.
-- A start reminder shows the task title, an alarm icon, and a Dismiss button.
-- Dismissing a start reminder removes the overlay without changing the task's
-  status or schedule.
-- One minute after a scheduled end, the end reminder shows the task title and
-  Finish and Extend buttons.
-- Finish from an overlay ends the task at the current time.
-- Extend from an overlay changes the task to extended status and starts the
-  extension behavior.
-- The overlay is removed after an action is selected.
+The browser action popup provides a **Finish task** button for active tasks,
+allowing them to be completed without opening the workspace.
 
-### 8.2 Countdown overlay
+The remaining requirements in this document describe workspace, persistence,
+calendar, and background implementation behavior independently of popup
+presentation.
 
-- Countdown completion is delivered only to the active tab in the last-focused
-  browser window.
-- The countdown completion overlay is an alarm emoji button.
-- Clicking it dismisses the overlay and records the dismissal for the current
-  countdown occurrence.
-- The content script uses a dedicated extension overlay container.
-- Existing host-page content is not replaced.
-- Duplicate overlay elements are avoided on the same page.
-- Pages excluded by the manifest do not receive the content script.
-
-## 9. Browser popup
-
-The browser action popup provides:
-
-- Offline Workspace branding.
-- A theme toggle.
-- An Enable Extension checkbox.
-- An **Open workspace** button.
-- A countdown status line using `HH:MM:SS`.
-- A task status section for non-completed tasks.
-
-Popup task status:
-
-- Each non-completed task shows its title.
-- Each task shows its start time.
-- Each task shows its scheduled end time.
-- Each task card uses the task's stored color as its background color.
-- Extended task end text is marked with the late styling.
-- The popup has an informational tooltip explaining active-page alerts.
-- The enabled setting is persisted.
-- Popup theme changes are synchronized through shared storage.
-
-## 10. Theme and appearance
+## 9. Theme and appearance
 
 - The extension supports Dark and Light themes.
 - The workspace header has a theme toggle.
-- The popup has a theme toggle.
 - Theme state is stored in `chrome.storage.local`.
-- Theme state is synchronized between the popup and workspace through storage
-  changes.
 - The light theme background is `#f7f6f2`.
 - The dark theme background is `#020011`.
 - Theme-sensitive colors transition over 0.3 seconds.
@@ -454,7 +417,7 @@ Popup task status:
 - The current workspace UI does not provide a visible Settings menu or
   background-image entry form.
 
-## 11. Import and export
+## 10. Import and export
 
 The Import/Export menu provides separate controls for:
 
@@ -487,7 +450,7 @@ Import behavior:
   rerender.
 - Imports do not provide a replace-versus-merge choice.
 
-## 12. Persistence and live synchronization
+## 11. Persistence and live synchronization
 
 - Workspace state is persisted in one `todoState` object in
   `chrome.storage.local`.
@@ -497,14 +460,13 @@ Import behavior:
 - External state changes refresh the workspace when the user is not actively
   editing a text field or contenteditable editor.
 - Theme changes are applied when synchronized state changes.
-- The popup listens for workspace state changes and refreshes its status panel.
 - Stopwatch and countdown displays update every second while the workspace is
   open.
 - The calendar refreshes periodically while open.
 - The service worker recreates relevant alarms after installation, startup, and
   state changes.
 
-## 13. Background service-worker behavior
+## 12. Background service-worker behavior
 
 - Installation schedules persisted tasks and countdowns.
 - Browser startup schedules persisted tasks and countdowns and checks for missed
@@ -517,9 +479,11 @@ Import behavior:
 - Extended tasks receive a periodic extension tick.
 - Countdown alarms clear or recreate correctly when a countdown starts or resets.
 - Background task actions update shared storage and reschedule affected alarms.
+- Timer and task alerts use browser system notifications and do not require
+  website host permissions or injected content scripts.
 - Background failures are logged to the service worker console.
 
-## 14. Current limitations and intentionally unsupported behavior
+## 13. Current limitations and intentionally unsupported behavior
 
 The following are not implemented:
 
@@ -530,7 +494,7 @@ The following are not implemented:
 - Multiple simultaneous countdowns.
 - A per-website workspace.
 - External synchronization or cloud storage.
-- Native browser notifications as a replacement for active-tab overlays.
+- Access to all websites or injected active-page reminder overlays.
 - A workspace Settings menu.
 - A visible workspace control for entering a background-image URL.
 - Replace-versus-merge import selection.
@@ -539,10 +503,10 @@ The following are not implemented:
 - A task-overlap display mode; task validation rejects overlaps for new and
   edited tasks.
 
-## Definition of done for the current implementation
+## 14. Definition of done for the current implementation
 
 - The extension loads as Offline Workspace in desktop Chrome or Edge.
-- The popup can enable or disable active-page functionality and open the
+- The extension can enable or disable notifications and open the
   workspace.
 - The workspace opens on Calendar and provides Calendar, Notes, and Time tools
   tabs.
@@ -551,19 +515,16 @@ The following are not implemented:
 - Font selection includes previews and persisted recently used fonts.
 - Tasks can be created with title, description, color, start time, and optional
   end time.
-- Task start time determines immediate versus scheduled status.
+- A task entered for the current local minute is created as active; other task
+  start times are created as scheduled, including start times in the past.
 - Tasks can be edited, finished at the current time, and deleted.
 - The calendar displays exact-time task boxes on a scrollable 30-minute grid.
 - Calendar automatic start calculation keeps every current-day task visible.
-- Extended tasks retain their fill color and use a solid red side bar after the
-  one-minute grace period.
+- Extended tasks retain their fill color and use a solid red side bar.
 - Later tasks shift forward while an extended task grows.
 - Previous-day tasks are removed from stored state and all extension surfaces.
 - The task-color pie chart reflects current-day task duration by color.
 - The stopwatch, laps, and countdown operate and persist through reloads.
-- Background alarms deliver task and countdown overlays to the active tab.
-- Popup task cards use their stored task colors.
-- Dark and Light themes synchronize between popup and workspace.
+- Dark and Light themes synchronize across the extension.
 - Notes, tasks, settings, and timers can be imported and exported as JSON.
-- The extension does not intentionally rewrite host-page content outside its own
-  isolated overlay.
+- The extension does not require or intentionally rewrite host-page content.

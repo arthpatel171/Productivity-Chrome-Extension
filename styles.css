@@ -238,7 +238,9 @@ fieldset label, .switch-row { display: flex; align-items: center; gap: 6px; }
 fieldset input, .switch-row input { width: auto; }
 .time-input { display: flex; gap: 6px; }
 .time-input input { min-width: 0; }
-.time-input select { width: 66px; border: 1px solid var(--line); border-radius: 4px; background-color: var(--input-bg); color: var(--ink); }
+.period-options { display: flex; align-items: center; gap: 10px; align-self: stretch; min-width: 92px; }
+.period-options label { display: flex; align-items: center; gap: 5px; color: var(--ink); font: 15px/1 Arial, sans-serif; white-space: nowrap; }
+.period-options input { width: 20px; height: 20px; margin: 0; }
 .task-color-picker { display: grid; gap: 8px; }
 .task-color-picker input[type="color"] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .standard-colors { display: flex; flex-wrap: wrap; gap: 7px; }
@@ -256,6 +258,8 @@ fieldset input, .switch-row input { width: auto; }
 .task-color-chart { display: grid; justify-items: center; gap: 12px; margin-top: 24px; padding: 20px; border: 1px solid var(--line); border-radius: 6px; background-color: var(--paper); box-shadow: var(--shadow); }
 .task-color-chart h3 { margin: 0; color: var(--ink); }
 .task-color-pie { width: 220px; aspect-ratio: 1; border-radius: 50%; }
+.task-color-pie-empty { display: grid; place-items: center; border: 2px solid #fff; background: #808080; overflow: hidden; }
+.task-color-pie-empty span { color: #fff; font: 700 14px Arial, sans-serif; text-align: center; }
 .task-color-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; margin: 0; padding: 0; list-style: none; color: var(--muted); font: 12px Arial, sans-serif; }
 .task-color-legend li { display: inline-flex; align-items: center; gap: 6px; }
 .task-color-legend-swatch { width: 12px; height: 12px; border-radius: 50%; }

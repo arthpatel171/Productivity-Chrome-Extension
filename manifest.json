@@ -3,10 +3,7 @@
   "name": "Offline Workspace",
   "version": "2.0.2",
   "description": "An offline notes, calendar, and time-management workspace",
-  "permissions": ["storage", "alarms", "tabs", "notifications"],
-  "host_permissions": [
-    "<all_urls>"
-  ],
+  "permissions": ["storage", "alarms", "notifications"],
   "icons": {
     "16": "icon-16.png",
     "32": "icon-32.png",
@@ -25,13 +22,5 @@
   },
   "background": {
     "service_worker": "background.js"
-  },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "exclude_matches": ["*://example.com/*", "*://www.example.com/*"],
-      "js": ["content.js"],
-      "css": ["overlay.css"]
-    }
-  ]
+  }
 }

@@ -16,7 +16,7 @@ const DEFAULT_STATE = {
   notes: [{ id: crypto.randomUUID(), title: 'Welcome note', blocks: [{ id: crypto.randomUUID(), title: 'Ideas', html: '<p>Start writing here.</p>', collapsed: false, width: 100, height: 180, fontFamily: 'Arial, sans-serif', customColors: [] }] }],
   tasks: [], stopwatch: { startedAt: null, elapsed: 0, laps: [] },
   countdown: { endsAt: null, remaining: 0, alarmActive: false, occurrence: null, dismissed: false },
-  settings: { textColor: '#d7e3f4', highlightColor: '#123b66', enabled: true, theme: 'dark' },
+  settings: { textColor: '#d7e3f4', highlightColor: '#123b66', silentNotifications: false, theme: 'dark' },
   calendar: { visibleStart: defaultCalendarStart(), visibleEnd: 1440, visibleStartUserSet: false }
 };
 
@@ -250,21 +250,31 @@ function renderTasks() {
 function renderTaskColorChart() {
   const chart = $('#task-color-chart'); chart.replaceChildren();
   const totals = new Map();
+  const taskNames = new Map();
   state.tasks.forEach(task => {
     const start = new Date(task.start).getTime(); const end = new Date(task.end).getTime(); const duration = end - start;
     if (!Number.isFinite(start) || !Number.isFinite(end) || duration <= 0) return;
     const color = /^#[0-9a-f]{6}$/i.test(task.color || '') ? task.color.toLowerCase() : '#2f6fae';
     totals.set(color, (totals.get(color) || 0) + duration);
+    if (!STANDARD_COLORS.some(([, value]) => value.toLowerCase() === color)) {
+      const names = taskNames.get(color) || new Set();
+      names.add(task.title?.trim() || 'Untitled task');
+      taskNames.set(color, names);
+    }
   });
   const entries = [...totals.entries()].sort((first, second) => second[1] - first[1]);
   const totalDuration = entries.reduce((sum, entry) => sum + entry[1], 0);
-  if (!totalDuration) return;
-  const heading = document.createElement('h3'); heading.textContent = 'Task time by color'; chart.appendChild(heading);
+  const heading = document.createElement('h3'); heading.textContent = 'Time by Category'; chart.appendChild(heading);
+  if (!totalDuration) {
+    const pie = document.createElement('div'); pie.className = 'task-color-pie task-color-pie-empty'; pie.setAttribute('role', 'img'); pie.setAttribute('aria-label', 'No day breakdown to display');
+    const message = document.createElement('span'); message.textContent = 'No day breakdown to display'; pie.appendChild(message); chart.appendChild(pie);
+    return;
+  }
   let angle = 0; const stops = [];
   entries.forEach(([color, duration]) => { const percentage = duration / totalDuration * 100; stops.push(`${color} ${angle}deg ${angle + percentage * 3.6}deg`); angle += percentage * 3.6; });
   const pie = document.createElement('div'); pie.className = 'task-color-pie'; pie.style.background = `conic-gradient(${stops.join(', ')})`; pie.setAttribute('role', 'img'); pie.setAttribute('aria-label', 'Task time distribution by color'); chart.appendChild(pie);
   const legend = document.createElement('ul'); legend.className = 'task-color-legend';
-  entries.forEach(([color, duration]) => { const item = document.createElement('li'); const swatch = document.createElement('span'); swatch.className = 'task-color-legend-swatch'; swatch.style.backgroundColor = color; const label = document.createElement('span'); const colorName = STANDARD_COLORS.find(([, value]) => value.toLowerCase() === color)?.[0] || `Custom (${color})`; label.textContent = `${colorName} · ${(duration / totalDuration * 100).toFixed(1)}%`; item.append(swatch, label); legend.appendChild(item); });
+  entries.forEach(([color, duration]) => { const item = document.createElement('li'); const swatch = document.createElement('span'); swatch.className = 'task-color-legend-swatch'; swatch.style.backgroundColor = color; const label = document.createElement('span'); const colorName = STANDARD_COLORS.find(([, value]) => value.toLowerCase() === color)?.[0] || [...(taskNames.get(color) || ['Miscellaneous'])].join(', '); label.textContent = `${colorName} · ${(duration / totalDuration * 100).toFixed(1)}%`; item.append(swatch, label); legend.appendChild(item); });
   chart.appendChild(legend);
 }
 function calendarMinuteOffset(minute, visibleStart) { return Math.max(0, minute - visibleStart) * CALENDAR_PIXELS_PER_MINUTE; }
@@ -344,7 +354,7 @@ function syncExtendedTasks() {
 function editTask(task) {
   taskBeingEdited = task; const form = $('#task-form'); form.hidden = false; form.elements.title.value = task.title || ''; form.elements.description.value = task.description || ''; form.elements.color.value = task.color || '#2f6fae'; syncTaskColorPicker(); setTimeFields(form, 'start', new Date(task.start)); setTimeFields(form, 'end', new Date(task.end));
   $('#task-meta').textContent = task.actualEnd ? `Scheduled: ${formatDate(new Date(task.end))} · Actual end: ${formatDate(new Date(task.actualEnd))}` : `Scheduled: ${formatDate(new Date(task.start))} - ${formatDate(new Date(task.end))}`;
-  const actions = form.querySelector('.form-actions'); actions.querySelectorAll('.task-action').forEach(item => item.remove()); if (task.status !== 'completed') { const end = button('Finish Task', 'success task-action'); end.addEventListener('click', () => finishTask(task)); actions.prepend(end); } const remove = button('Delete task', 'danger task-action'); remove.addEventListener('click', () => deleteTask(task)); actions.prepend(remove); document.querySelector('[data-view="calendar-view"]').click(); window.scrollTo({ top: 0, behavior: 'smooth' });
+  const actions = form.querySelector('.form-actions'); actions.querySelectorAll('.task-action').forEach(item => item.remove()); if (task.status !== 'completed') { const end = button('Finish Task', 'success task-action'); end.addEventListener('click', () => finishTask(task)); actions.prepend(end); } const remove = button('🗑️', 'note-delete-button task-action'); remove.title = 'Delete task'; remove.setAttribute('aria-label', `Delete ${task.title || 'untitled task'}`); remove.addEventListener('click', () => deleteTask(task)); actions.prepend(remove); document.querySelector('[data-view="calendar-view"]').click(); window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 function finishTask(task) { const endedAt = new Date().toISOString(); task.status = 'completed'; task.end = endedAt; task.completedAt = endedAt; task.actualEnd = endedAt; saveState('Task ended'); renderTasks(); editTask(task); }
 function deleteTask(task) { if (!confirm(`Delete "${task.title}"?`)) return; state.tasks = state.tasks.filter(item => item.id !== task.id); taskBeingEdited = null; $('#task-form').hidden = true; saveState('Task deleted'); renderTasks(); }
@@ -355,8 +365,6 @@ function formatDate(date) { return date.toLocaleString([], { dateStyle: 'short',
 function formatClock(date) { return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
 function isValidDate(value) { const date = value instanceof Date ? value : new Date(value); return !Number.isNaN(date.getTime()); }
 function localInputValue(date) { if (!isValidDate(date)) return ''; const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 16); }
-function timeInputValue(date) { const hour = date.getHours(); return `${hour % 12 || 12}:${String(date.getMinutes()).padStart(2, '0')}`; }
-function setEndTimePlaceholder(form, start) { const end = new Date(start.getTime() + 60 * 60000); form.elements.endTime.placeholder = timeInputValue(end); form.elements.endPeriod.value = end.getHours() >= 12 ? 'PM' : 'AM'; }
 function setTimeFields(form, prefix, date) { const value = localInputValue(date); const [hourText, minute] = value.slice(11).split(':'); const hour = Number(hourText); form.elements[`${prefix}Time`].value = `${hour % 12 || 12}:${minute}`; form.elements[`${prefix}Period`].value = hour >= 12 ? 'PM' : 'AM'; }
 function parseTimeOnDate(date, timeValue, period) { const match = String(timeValue).trim().match(/^(\d{1,2}):([0-5]\d)$/); if (!match || Number(match[1]) < 1 || Number(match[1]) > 12) return null; const result = new Date(date); result.setHours((Number(match[1]) % 12) + (period === 'PM' ? 12 : 0), Number(match[2]), 0, 0); return isValidDate(result) ? result : null; }
 function overlaps(start, end, excludeId = null) { return state.tasks.some(task => task.id !== excludeId && task.status !== 'completed' && new Date(task.start) < end && new Date(task.end) > start); }
@@ -395,11 +403,11 @@ function wireEvents() {
   }));
   updateTabIndicator(tabs?.querySelector('.tab.is-active'));
   window.addEventListener('resize', () => updateTabIndicator(tabs?.querySelector('.tab.is-active')));
-  $('#new-task').addEventListener('click', () => { taskBeingEdited = null; const form = $('#task-form'); form.reset(); syncTaskColorPicker(); form.hidden = false; $('#task-meta').textContent = ''; const start = new Date(); setTimeFields(form, 'start', start); form.elements.endTime.value = ''; setEndTimePlaceholder(form, start); form.querySelector('.form-actions').querySelectorAll('.task-action').forEach(item => item.remove()); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+  $('#new-task').addEventListener('click', () => { taskBeingEdited = null; const form = $('#task-form'); form.reset(); syncTaskColorPicker(); form.hidden = false; $('#task-meta').textContent = ''; const start = new Date(); setTimeFields(form, 'start', start); form.elements.endTime.value = ''; const currentPeriod = start.getHours() >= 12 ? 'PM' : 'AM'; form.elements.startPeriod.value = currentPeriod; form.elements.endPeriod.value = currentPeriod; form.querySelector('.form-actions').querySelectorAll('.task-action').forEach(item => item.remove()); window.scrollTo({ top: 0, behavior: 'smooth' }); });
   $('#cancel-task').addEventListener('click', () => { taskBeingEdited = null; $('#task-form').hidden = true; });
   $('#task-form').addEventListener('submit', event => {
     event.preventDefault(); const form = event.currentTarget; const taskDate = taskBeingEdited ? new Date(taskBeingEdited.start) : new Date(); const enteredStart = parseTimeOnDate(taskDate, form.elements.startTime.value, form.elements.startPeriod.value); const endInput = form.elements.endTime.value.trim(); const end = endInput ? parseTimeOnDate(taskDate, endInput, form.elements.endPeriod.value) : enteredStart ? new Date(enteredStart.getTime() + 60 * 60000) : null; const current = new Date(); const startsNow = !taskBeingEdited && enteredStart && enteredStart.getHours() === current.getHours() && enteredStart.getMinutes() === current.getMinutes(); const start = startsNow ? current : enteredStart;
-    if (!start || !end) return setStatus('Enter valid start and end time values.'); if (!taskBeingEdited && start < current) return setStatus('A new task must start now or in the future.'); if (!sameLocalDay(start, end)) return setStatus('Tasks must start and end on the same day.'); if (end <= start) return setStatus('End time must be after the start time.'); if (end.getTime() - start.getTime() >= 86400000) return setStatus('Tasks cannot be longer than one day.'); if (overlaps(start, end, taskBeingEdited?.id)) return setStatus('Tasks cannot overlap.');
+    if (!start || !end) return setStatus('Enter valid start and end time values.'); if (!sameLocalDay(start, end)) return setStatus('Tasks must start and end on the same day.'); if (end <= start) return setStatus('End time must be after the start time.'); if (end.getTime() - start.getTime() >= 86400000) return setStatus('Tasks cannot be longer than one day.'); if (overlaps(start, end, taskBeingEdited?.id)) return setStatus('Tasks cannot overlap.');
     const values = { title: form.elements.title.value.trim(), description: form.elements.description.value.trim(), color: form.elements.color.value, start: start.toISOString(), end: end.toISOString() }; if (!values.title) return setStatus('Enter a task title.');
     if (taskBeingEdited) Object.assign(taskBeingEdited, values); else state.tasks.push({ id: crypto.randomUUID(), ...values, status: startsNow ? 'active' : 'scheduled', completedAt: null });
     saveState('Task saved'); taskBeingEdited = null; form.reset(); form.hidden = true; renderTasks();

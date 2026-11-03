@@ -2,8 +2,14 @@ const START_ALARM = taskId => `task-start-${taskId}`;
 const END_ALARM = taskId => `task-end-${taskId}`;
 const COUNTDOWN_ALARM = 'countdown';
 const TASK_TICK = 'task-extension-tick';
+const COUNTDOWN_NOTIFICATION = 'offline-workspace-countdown';
+const TASK_NOTIFICATION = (taskId, kind) => `offline-workspace-task-${kind}-${taskId}`;
+const ICON_URL = 'icon-128.png';
 
-chrome.runtime.onInstalled.addListener(() => { scheduleAllTasks().catch(reportBackgroundError); });
+chrome.runtime.onInstalled.addListener(() => {
+  scheduleAllTasks().catch(reportBackgroundError);
+  checkMissedTasks().catch(reportBackgroundError);
+});
 chrome.runtime.onStartup.addListener(() => {
   scheduleAllTasks().catch(reportBackgroundError);
   checkMissedTasks().catch(reportBackgroundError);
@@ -16,7 +22,10 @@ function reportBackgroundError(error) {
 
 async function getState() {
   const result = await chrome.storage.local.get('todoState');
-  return result.todoState || { tasks: [], settings: { enabled: true }, countdown: { endsAt: null } };
+  const state = result.todoState || { tasks: [], settings: {}, countdown: { endsAt: null } };
+  const settings = state.settings || {};
+  state.settings = { ...settings, silentNotifications: settings.silentNotifications ?? settings.enabled === false };
+  return state;
 }
 async function scheduleAllTasks() {
   const state = await getState();
@@ -26,13 +35,20 @@ async function scheduleAllTasks() {
   if (state.tasks.length !== currentTasks.length) await chrome.storage.local.set({ todoState: state });
   const alarms = await chrome.alarms.getAll();
   await Promise.all(alarms.filter(alarm => alarm.name.startsWith('task-start-') || alarm.name.startsWith('task-end-') || alarm.name === COUNTDOWN_ALARM || alarm.name === TASK_TICK).map(alarm => chrome.alarms.clear(alarm.name)));
-  if (state.settings?.enabled === false) return;
+  if (state.settings?.silentNotifications === true) {
+    await chrome.notifications.clear(COUNTDOWN_NOTIFICATION);
+    await Promise.all((state.tasks || []).flatMap(task => [
+      chrome.notifications.clear(TASK_NOTIFICATION(task.id, 'start')),
+      chrome.notifications.clear(TASK_NOTIFICATION(task.id, 'end'))
+    ]));
+    return;
+  }
   for (const task of state.tasks || []) {
     if (task.status === 'completed') continue;
     const start = new Date(task.start).getTime();
     const end = new Date(task.end).getTime();
     if (start > Date.now()) await chrome.alarms.create(START_ALARM(task.id), { when: start });
-    if (task.status !== 'extended' && end + 60000 > Date.now()) await chrome.alarms.create(END_ALARM(task.id), { when: end + 60000 });
+    if (task.status !== 'extended' && !task.delayed && end > Date.now()) await chrome.alarms.create(END_ALARM(task.id), { when: end });
   }
   if (state.tasks?.some(task => task.status === 'extended')) await chrome.alarms.create(TASK_TICK, { periodInMinutes: 1 });
   if (state.countdown?.endsAt > Date.now()) await chrome.alarms.create(COUNTDOWN_ALARM, { when: state.countdown.endsAt });
@@ -51,7 +67,7 @@ async function handleAlarm(alarm) {
     const state = await getState();
     state.countdown = { ...(state.countdown || {}), endsAt: null, remaining: 0, alarmActive: true, dismissed: false };
     await chrome.storage.local.set({ todoState: state });
-    sendToActiveTab({ type: 'COUNTDOWN_ALARM', task: { kind: 'countdown', occurrence: state.countdown.occurrence } });
+    await showCountdownNotification();
     return;
   }
   const match = alarm.name.match(/^task-(start|end)-(.+)$/);
@@ -62,18 +78,24 @@ async function handleAlarm(alarm) {
   if (match[1] === 'end') task.status = 'extended';
   task.reminded = { ...(task.reminded || {}), [match[1]]: true };
   await chrome.storage.local.set({ todoState: state });
-  sendToActiveTab({ type: 'REMINDER', task: { ...task, kind: match[1] } });
+  await showTaskNotification(task, match[1]);
 }
 
 async function checkMissedTasks() {
   const state = await getState();
-  if (state.settings?.enabled === false) return;
   const current = Date.now();
   for (const task of state.tasks || []) {
     if (task.status === 'completed') continue;
-    if (new Date(task.end).getTime() + 60000 <= current && !task.reminded?.end) {
+    const start = new Date(task.start).getTime();
+    const end = new Date(task.end).getTime();
+    if (task.status === 'scheduled' && !task.delayed && start <= current && !task.reminded?.start) {
+      task.reminded = { ...(task.reminded || {}), start: true };
+      await showTaskNotification(task, 'start');
+    }
+    if (task.status !== 'extended' && !task.delayed && end <= current && !task.reminded?.end) {
+      task.status = 'extended';
       task.reminded = { ...(task.reminded || {}), end: true };
-      sendToActiveTab({ type: 'REMINDER', task: { ...task, kind: 'end' } });
+      await showTaskNotification(task, 'end');
     }
   }
   await chrome.storage.local.set({ todoState: state });
@@ -110,25 +132,62 @@ function shiftExtendedTasks(state) {
   return changed;
 }
 
-async function sendToActiveTab(message) {
-  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  const tab = tabs[0];
-  if (tab?.id) chrome.tabs.sendMessage(tab.id, message).catch(() => {});
+async function showCountdownNotification() {
+  const state = await getState();
+  if (state.settings?.silentNotifications === true) {
+    await chrome.notifications.clear(COUNTDOWN_NOTIFICATION);
+    return;
+  }
+  await chrome.notifications.create(COUNTDOWN_NOTIFICATION, {
+    type: 'basic',
+    iconUrl: ICON_URL,
+    title: 'Timer complete',
+    message: 'Your countdown has reached zero.',
+    priority: 2,
+    requireInteraction: true,
+    buttons: [{ title: 'Dismiss' }]
+  });
+}
+
+async function showTaskNotification(task, kind) {
+  const state = await getState();
+  if (state.settings?.silentNotifications === true) {
+    await chrome.notifications.clear(TASK_NOTIFICATION(task.id, kind));
+    return;
+  }
+  const options = kind === 'start'
+    ? {
+        type: 'basic',
+        iconUrl: ICON_URL,
+        title: task.title || 'Task starting',
+        message: 'This task is scheduled to start now.',
+        priority: 2,
+        requireInteraction: true,
+        buttons: [{ title: 'Start now' }, { title: 'Delay' }]
+      }
+    : {
+        type: 'basic',
+        iconUrl: ICON_URL,
+        title: task.title || 'Task finish time',
+        message: 'The scheduled finish time has arrived.',
+        priority: 2,
+        requireInteraction: true,
+        buttons: [{ title: 'Finish' }, { title: 'Extend' }]
+      };
+  await chrome.notifications.create(TASK_NOTIFICATION(task.id, kind), options);
+}
+
+async function clearTaskNotifications(taskId) {
+  await Promise.all([
+    chrome.notifications.clear(TASK_NOTIFICATION(taskId, 'start')),
+    chrome.notifications.clear(TASK_NOTIFICATION(taskId, 'end'))
+  ]);
 }
 
 chrome.runtime.onMessage.addListener(message => {
   handleMessage(message).catch(reportBackgroundError);
 });
 async function handleMessage(message) {
-  if (message.type === 'GET_ACTIVE_ALARMS') {
-    const state = await getState();
-    if (state.settings?.enabled === false) return;
-    if (state.countdown?.alarmActive && !state.countdown?.dismissed) sendToActiveTab({ type: 'COUNTDOWN_ALARM', task: { kind: 'countdown', occurrence: state.countdown.occurrence } });
-    for (const task of state.tasks || []) {
-      if (task.status !== 'completed' && new Date(task.end).getTime() <= Date.now() && task.reminded?.end) sendToActiveTab({ type: 'REMINDER', task: { ...task, kind: 'end' } });
-    }
-    return;
-  }
   if (message.type === 'START_COUNTDOWN') {
     await chrome.alarms.clear(COUNTDOWN_ALARM);
     await chrome.alarms.create(COUNTDOWN_ALARM, { when: message.endsAt });
@@ -138,15 +197,63 @@ async function handleMessage(message) {
     const state = await getState();
     state.countdown = { ...(state.countdown || {}), alarmActive: false, dismissed: true };
     await chrome.storage.local.set({ todoState: state });
+    await chrome.notifications.clear(COUNTDOWN_NOTIFICATION);
   }
   if (message.type === 'TASK_ACTION') {
     const state = await getState();
     const task = (state.tasks || []).find(item => item.id === message.taskId);
     if (!task) return;
     if (message.action === 'finish') { task.status = 'completed'; task.end = new Date().toISOString(); task.actualEnd = task.end; task.completedAt = task.end; }
-    if (message.action === 'extend') task.status = 'extended';
+    if (message.action === 'extend') { task.status = 'extended'; task.delayed = false; }
+    if (message.action === 'start') {
+      if (new Date(task.end).getTime() <= Date.now()) {
+        const duration = Math.max(60000, new Date(task.end).getTime() - new Date(task.start).getTime());
+        task.start = new Date().toISOString();
+        task.end = new Date(Date.now() + duration).toISOString();
+      }
+      task.status = 'active'; task.delayed = false; task.reminded = { ...(task.reminded || {}), start: true };
+    }
+    if (message.action === 'delay') { task.delayed = true; task.reminded = { ...(task.reminded || {}), start: true }; }
     if (message.action === 'extend') shiftExtendedTasks(state);
     await chrome.storage.local.set({ todoState: state });
+    await clearTaskNotifications(task.id);
     await scheduleAllTasks();
   }
+}
+
+chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
+  handleNotificationAction(notificationId, buttonIndex).catch(reportBackgroundError);
+});
+chrome.notifications.onClicked.addListener(notificationId => {
+  handleNotificationClick(notificationId).catch(reportBackgroundError);
+});
+
+async function handleNotificationAction(notificationId, buttonIndex) {
+  if (notificationId === COUNTDOWN_NOTIFICATION) {
+    await dismissCountdown();
+    return;
+  }
+  const match = notificationId.match(/^offline-workspace-task-(start|end)-(.+)$/);
+  if (!match) return;
+  const action = match[1] === 'start'
+    ? (buttonIndex === 0 ? 'start' : 'delay')
+    : (buttonIndex === 0 ? 'finish' : 'extend');
+  await handleMessage({ type: 'TASK_ACTION', taskId: match[2], action });
+}
+
+async function handleNotificationClick(notificationId) {
+  if (notificationId === COUNTDOWN_NOTIFICATION) {
+    await dismissCountdown();
+    return;
+  }
+  const match = notificationId.match(/^offline-workspace-task-(start|end)-(.+)$/);
+  if (!match) return;
+  await chrome.tabs.create({ url: chrome.runtime.getURL('app.html') });
+}
+
+async function dismissCountdown() {
+  const state = await getState();
+  state.countdown = { ...(state.countdown || {}), alarmActive: false, dismissed: true };
+  await chrome.storage.local.set({ todoState: state });
+  await chrome.notifications.clear(COUNTDOWN_NOTIFICATION);
 }
