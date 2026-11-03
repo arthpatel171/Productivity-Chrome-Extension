@@ -1,0 +1,389 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Text and Image Editor</title>
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 35px;
+    background: #f3f4f6;
+    font-family: Arial, sans-serif;
+}
+
+h2 {
+    margin-bottom: 15px;
+    color: #222;
+}
+
+.editor {
+    width: 100%;
+    min-height: 500px;
+    padding: 20px;
+    background: black;
+    color: white;
+    border: 2px solid #444;
+    border-radius: 10px;
+    outline: none;
+    font-size: 16px;
+    line-height: 1.6;
+    overflow-wrap: break-word;
+}
+
+.editor:focus {
+    border-color: #4285f4;
+}
+
+.editor:empty::before {
+    content: "Start typing or paste an image here...";
+    color: #888;
+    pointer-events: none;
+}
+
+/* Image wrapper */
+.image-wrapper {
+    display: inline-block;
+    position: relative;
+    width: 300px;
+    height: 200px;
+    max-width: 100%;
+    margin: 8px;
+    vertical-align: middle;
+    user-select: none;
+}
+
+/* Image */
+.image-wrapper img {
+    width: 100%;
+    height: 100%;
+    object-fit: fill;
+    display: block;
+    pointer-events: none;
+}
+
+/* Selection outline */
+.image-wrapper.selected {
+    outline: 1px solid #1683ff;
+}
+
+/* Resize handles */
+.handle {
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    background: white;
+    border: 1px solid #1683ff;
+    border-radius: 1px;
+    display: none;
+    z-index: 10;
+}
+
+.selected .handle {
+    display: block;
+}
+
+/* Corner handles */
+.handle.nw {
+    top: -5px;
+    left: -5px;
+    cursor: nwse-resize;
+}
+
+.handle.ne {
+    top: -5px;
+    right: -5px;
+    cursor: nesw-resize;
+}
+
+.handle.sw {
+    bottom: -5px;
+    left: -5px;
+    cursor: nesw-resize;
+}
+
+.handle.se {
+    bottom: -5px;
+    right: -5px;
+    cursor: nwse-resize;
+}
+
+/* Side handles */
+.handle.n {
+    top: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    cursor: ns-resize;
+}
+
+.handle.s {
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    cursor: ns-resize;
+}
+
+.handle.w {
+    left: -5px;
+    top: 50%;
+    transform: translateY(-50%);
+    cursor: ew-resize;
+}
+
+.handle.e {
+    right: -5px;
+    top: 50%;
+    transform: translateY(-50%);
+    cursor: ew-resize;
+}
+
+.instructions {
+    color: #777;
+    font-size: 13px;
+}
+</style>
+</head>
+
+<body>
+
+<h2>Text and Image Editor</h2>
+
+<div
+    class="editor"
+    id="editor"
+    contenteditable="true"
+    spellcheck="true"
+></div>
+
+<p class="instructions">
+    Type normally. Paste images with Ctrl + V.
+    Select an image to show its resizing handles.
+    Press Backspace or Delete to remove a selected image.
+</p>
+
+<script>
+
+const editor = document.getElementById("editor");
+
+let selectedImage = null;
+let resizing = false;
+let resizeData = null;
+
+// Create eight resize handles
+function createHandles(wrapper) {
+
+    const positions = [
+        "nw", "n", "ne",
+        "w", "e",
+        "sw", "s", "se"
+    ];
+
+    positions.forEach(position => {
+
+        const handle = document.createElement("div");
+
+        handle.className = "handle " + position;
+
+        handle.addEventListener("pointerdown", function(event) {
+            startResize(event, wrapper, position);
+        });
+
+        wrapper.appendChild(handle);
+    });
+}
+
+// Select image
+function selectImage(wrapper) {
+
+    if (selectedImage) {
+        selectedImage.classList.remove("selected");
+    }
+
+    selectedImage = wrapper;
+    wrapper.classList.add("selected");
+}
+
+// Deselect image
+function deselectImage() {
+
+    if (selectedImage) {
+        selectedImage.classList.remove("selected");
+        selectedImage = null;
+    }
+}
+
+// Handle pasted images
+editor.addEventListener("paste", function(event) {
+
+    const items = event.clipboardData.items;
+    const images = [];
+
+    for (const item of items) {
+
+        if (item.type.startsWith("image/")) {
+            images.push(item.getAsFile());
+        }
+    }
+
+    // Allow normal text pasting
+    if (images.length === 0) return;
+
+    event.preventDefault();
+
+    images.forEach(file => {
+        insertImage(URL.createObjectURL(file));
+    });
+});
+
+// Insert image at cursor
+function insertImage(imageURL) {
+
+    const selection = window.getSelection();
+
+    if (!selection.rangeCount) return;
+
+    const range = selection.getRangeAt(0);
+
+    if (!editor.contains(range.commonAncestorContainer)) return;
+
+    range.deleteContents();
+
+    const wrapper = document.createElement("span");
+
+    wrapper.className = "image-wrapper";
+    wrapper.contentEditable = "false";
+
+    const img = document.createElement("img");
+    img.src = imageURL;
+
+    wrapper.appendChild(img);
+
+    createHandles(wrapper);
+
+    range.insertNode(wrapper);
+
+    // Add space after image
+    const space = document.createTextNode("\u00A0");
+
+    wrapper.after(space);
+
+    // Move cursor after image
+    const newRange = document.createRange();
+
+    newRange.setStartAfter(space);
+    newRange.collapse(true);
+
+    selection.removeAllRanges();
+    selection.addRange(newRange);
+
+    editor.focus();
+}
+
+// Select image when clicked
+editor.addEventListener("click", function(event) {
+
+    const wrapper = event.target.closest(".image-wrapper");
+
+    if (wrapper && editor.contains(wrapper)) {
+        selectImage(wrapper);
+    } else {
+        deselectImage();
+    }
+});
+
+// Start resizing
+function startResize(event, wrapper, position) {
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    selectImage(wrapper);
+
+    resizing = true;
+
+    const rect = wrapper.getBoundingClientRect();
+
+    resizeData = {
+        startX: event.clientX,
+        startY: event.clientY,
+        width: rect.width,
+        height: rect.height,
+        position: position
+    };
+
+    document.addEventListener("pointermove", resizeImage);
+    document.addEventListener("pointerup", stopResize);
+}
+
+// Resize image without locking aspect ratio
+function resizeImage(event) {
+
+    if (!resizing || !selectedImage) return;
+
+    const data = resizeData;
+
+    const dx = event.clientX - data.startX;
+    const dy = event.clientY - data.startY;
+
+    let width = data.width;
+    let height = data.height;
+
+    const position = data.position;
+
+    if (position.includes("e")) width += dx;
+    if (position.includes("w")) width -= dx;
+
+    if (position.includes("s")) height += dy;
+    if (position.includes("n")) height -= dy;
+
+    width = Math.max(50, width);
+    height = Math.max(50, height);
+
+    selectedImage.style.width = width + "px";
+    selectedImage.style.height = height + "px";
+}
+
+// Stop resizing
+function stopResize() {
+
+    resizing = false;
+    resizeData = null;
+
+    document.removeEventListener("pointermove", resizeImage);
+    document.removeEventListener("pointerup", stopResize);
+}
+
+// Click outside editor to deselect
+document.addEventListener("click", function(event) {
+
+    if (!editor.contains(event.target)) {
+        deselectImage();
+    }
+});
+
+// Delete selected image using Backspace or Delete
+document.addEventListener("keydown", function(event) {
+
+    if (
+        selectedImage &&
+        (event.key === "Backspace" || event.key === "Delete")
+    ) {
+
+        event.preventDefault();
+
+        selectedImage.remove();
+        selectedImage = null;
+    }
+
+});
+
+</script>
+
+</body>
+</html>

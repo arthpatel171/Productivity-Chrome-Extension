@@ -2,6 +2,7 @@ const START_ALARM = taskId => `task-start-${taskId}`;
 const END_ALARM = taskId => `task-end-${taskId}`;
 const COUNTDOWN_ALARM = 'countdown';
 const TASK_TICK = 'task-extension-tick';
+const MIDNIGHT_CLEANUP = 'midnight-task-cleanup';
 const COUNTDOWN_NOTIFICATION = 'offline-workspace-countdown';
 const TASK_NOTIFICATION = (taskId, kind) => `offline-workspace-task-${kind}-${taskId}`;
 const ICON_URL = 'icon-128.png';
@@ -31,10 +32,21 @@ async function scheduleAllTasks() {
   const state = await getState();
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const currentTasks = state.tasks || [];
-  state.tasks = currentTasks.filter(task => { const start = new Date(task.start); return Number.isNaN(start.getTime()) || start >= today; });
-  if (state.tasks.length !== currentTasks.length) await chrome.storage.local.set({ todoState: state });
+  const removedTasks = currentTasks.filter(task => {
+    const start = new Date(task.start);
+    return !Number.isNaN(start.getTime()) && start < today;
+  });
+  state.tasks = currentTasks.filter(task => !removedTasks.includes(task));
+  if (removedTasks.length) {
+    await chrome.storage.local.set({ todoState: state });
+    await Promise.all(removedTasks.flatMap(task => [
+      chrome.notifications.clear(TASK_NOTIFICATION(task.id, 'start')),
+      chrome.notifications.clear(TASK_NOTIFICATION(task.id, 'end'))
+    ]));
+  }
   const alarms = await chrome.alarms.getAll();
-  await Promise.all(alarms.filter(alarm => alarm.name.startsWith('task-start-') || alarm.name.startsWith('task-end-') || alarm.name === COUNTDOWN_ALARM || alarm.name === TASK_TICK).map(alarm => chrome.alarms.clear(alarm.name)));
+  await Promise.all(alarms.filter(alarm => alarm.name.startsWith('task-start-') || alarm.name.startsWith('task-end-') || alarm.name === COUNTDOWN_ALARM || alarm.name === TASK_TICK || alarm.name === MIDNIGHT_CLEANUP).map(alarm => chrome.alarms.clear(alarm.name)));
+  await chrome.alarms.create(MIDNIGHT_CLEANUP, { when: nextLocalMidnight() });
   if (state.settings?.silentNotifications === true) {
     await chrome.notifications.clear(COUNTDOWN_NOTIFICATION);
     await Promise.all((state.tasks || []).flatMap(task => [
@@ -57,12 +69,22 @@ async function scheduleAllTasks() {
 chrome.alarms.onAlarm.addListener(alarm => {
   handleAlarm(alarm).catch(reportBackgroundError);
 });
+function nextLocalMidnight() {
+  const midnight = new Date();
+  midnight.setHours(24, 0, 0, 0);
+  return midnight.getTime();
+}
 async function handleAlarm(alarm) {
+  if (alarm.name === MIDNIGHT_CLEANUP) {
+    await scheduleAllTasks();
+    return;
+  }
   if (alarm.name === TASK_TICK) {
     const state = await getState();
     if (shiftExtendedTasks(state)) await chrome.storage.local.set({ todoState: state });
     return;
   }
+
   if (alarm.name === COUNTDOWN_ALARM) {
     const state = await getState();
     state.countdown = { ...(state.countdown || {}), endsAt: null, remaining: 0, alarmActive: true, dismissed: false };

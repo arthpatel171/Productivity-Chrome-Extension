@@ -71,6 +71,12 @@ The full workspace is opened from the browser popup and contains three tabs:
   button.
 - Each text box has an editable title.
 - Each text box has a content-editable WYSIWYG editor.
+- Pasting an image file, screenshot, or copied web image into a text box
+  inserts it as a resizable image.
+- Pasted images can be selected to show eight resize handles and resized
+  horizontally or vertically within the text box. Their resized dimensions are
+  persisted with the text-box content.
+- Pressing Backspace or Delete while a pasted image is selected removes it.
 - Text boxes can be deleted from their toolbar.
 - Text boxes can be collapsed and expanded.
 - Text boxes can be reordered vertically by dragging their six-dot drag handle.
@@ -371,11 +377,14 @@ Task statuses include:
 
 - Tasks whose start date is before the current local day are automatically
   deleted rather than merely hidden.
+- A background alarm runs at each local midnight so previous-day tasks are
+  deleted even when the workspace is closed.
 - Cleanup occurs when the workspace state loads.
 - Cleanup also occurs before calendar rendering.
 - The service worker performs the same cleanup before recreating alarms.
-- Removed previous-day tasks no longer appear in persisted state, the calendar,
-  popup, pie chart, exports, or background scheduling.
+- Removed previous-day tasks are deleted from persisted Chrome storage and no
+  longer appear in the calendar, popup, pie chart, exports, notifications, or
+  background scheduling.
 - Tasks with invalid start dates are not removed by this date cleanup alone.
 
 ## 8. Popup and notification behavior

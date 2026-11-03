@@ -30,6 +30,8 @@ let taskBeingEdited;
 let calendarScrollTop = 0;
 let saving = false;
 let lastSavedStateJson = '';
+let selectedEditorImage = null;
+let resizeData = null;
 const $ = selector => document.querySelector(selector);
 const now = () => Date.now();
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -146,11 +148,137 @@ function createBlock(note, block, index, blockList) {
   const remove = button('Delete', 'danger'); remove.addEventListener('click', () => { note.blocks = note.blocks.filter(item => item.id !== block.id); saveState(); renderNotes(); });
   toolbar.append(blockTitle, formatButton('B', 'Bold', 'bold'), formatButton('I', 'Italic', 'italic'), formatButton('U', 'Underline', 'underline'), formatButton('•', 'Bulleted list', 'insertUnorderedList'), formatButton('1.', 'Numbered list', 'insertOrderedList'), fontFamily, decreaseFontSize, fontSize, increaseFontSize, color, highlight, collapse, remove);
   const editor = document.createElement('div'); editor.className = 'wysiwyg'; editor.contentEditable = 'true'; editor.innerHTML = block.html || ''; editor.dataset.placeholder = 'Start typing...'; editor.style.fontFamily = block.fontFamily || 'Arial, sans-serif'; editor.style.fontSize = `${block.fontSize || 18}px`; editor.style.minHeight = `${block.height || 180}px`;
+  prepareEditorImages(editor, block);
   editor.addEventListener('focus', () => { activeEditor = editor; });
   editor.addEventListener('keyup', () => syncToolbar(editor, fontFamily, fontSize)); editor.addEventListener('mouseup', () => syncToolbar(editor, fontFamily, fontSize));
-  editor.addEventListener('input', () => { applyTypingShortcut(editor); block.html = editor.innerHTML; block.fontFamily = window.getComputedStyle(editor).fontFamily || block.fontFamily; block.height = editor.scrollHeight; block.customColors = (block.customColors || []).filter(colorValue => block.html.toLowerCase().includes(colorValue.toLowerCase())); saveState(); });
-  editor.addEventListener('blur', () => { block.html = editor.innerHTML; activeEditor = null; saveState(); });
+  editor.addEventListener('paste', event => handleEditorPaste(event, editor, block));
+  editor.addEventListener('click', event => {
+    const image = event.target.closest('.resizable-image');
+    if (image && editor.contains(image)) selectEditorImage(image);
+    else deselectEditorImage();
+  });
+  editor.addEventListener('keydown', event => {
+    if (selectedEditorImage && editor.contains(selectedEditorImage) && (event.key === 'Backspace' || event.key === 'Delete')) {
+      event.preventDefault();
+      selectedEditorImage.remove();
+      deselectEditorImage();
+      block.html = editorHtml(editor);
+      saveState();
+    }
+  });
+  editor.addEventListener('input', () => { applyTypingShortcut(editor); block.html = editorHtml(editor); block.fontFamily = window.getComputedStyle(editor).fontFamily || block.fontFamily; block.height = editor.scrollHeight; block.customColors = (block.customColors || []).filter(colorValue => block.html.toLowerCase().includes(colorValue.toLowerCase())); saveState(); });
+  editor.addEventListener('blur', () => { block.html = editorHtml(editor); activeEditor = null; saveState(); });
   if (block.collapsed) editor.hidden = true; article.append(toolbar, editor); wrapper.append(drag, article); enableBlockDragging(note, block, wrapper, drag, blockList); return wrapper;
+}
+function prepareEditorImages(editor, block) {
+  [...editor.querySelectorAll('img')].forEach(image => {
+    const existing = image.parentElement?.classList.contains('resizable-image') ? image.parentElement : null;
+    if (existing) {
+      if (!existing.querySelector('.image-resize-handle')) addImageResizeHandles(existing, editor, block);
+      return;
+    }
+    wrapImage(editor, image, block);
+  });
+}
+function wrapImage(editor, image, block) {
+  const wrapper = document.createElement('span');
+  wrapper.className = 'resizable-image';
+  wrapper.contentEditable = 'false';
+  wrapper.setAttribute('role', 'img');
+  wrapper.setAttribute('aria-label', 'Resizable pasted image');
+  image.draggable = false;
+  image.removeAttribute('width');
+  image.removeAttribute('height');
+  image.replaceWith(wrapper);
+  wrapper.appendChild(image);
+  addImageResizeHandles(wrapper, editor, block);
+  return wrapper;
+}
+function addImageResizeHandles(wrapper, editor, block) {
+  ['nw', 'n', 'ne', 'w', 'e', 'sw', 's', 'se'].forEach(position => {
+    const handle = document.createElement('span');
+    handle.className = `image-resize-handle ${position}`;
+    handle.addEventListener('pointerdown', event => startImageResize(event, wrapper, position, editor, block));
+    wrapper.appendChild(handle);
+  });
+}
+function selectEditorImage(wrapper) {
+  deselectEditorImage();
+  selectedEditorImage = wrapper;
+  wrapper.classList.add('selected');
+}
+function deselectEditorImage() {
+  selectedEditorImage?.classList.remove('selected');
+  selectedEditorImage = null;
+}
+function startImageResize(event, wrapper, position, editor, block) {
+  event.preventDefault();
+  event.stopPropagation();
+  selectEditorImage(wrapper);
+  const rect = wrapper.getBoundingClientRect();
+  resizeData = { startX: event.clientX, startY: event.clientY, width: rect.width, height: rect.height, position, editor, block };
+  document.addEventListener('pointermove', resizeImage);
+  document.addEventListener('pointerup', stopImageResize, { once: true });
+}
+function resizeImage(event) {
+  if (!resizeData || !selectedEditorImage) return;
+  const { startX, startY, width: startWidth, height: startHeight, position, editor, block } = resizeData;
+  const dx = event.clientX - startX;
+  const dy = event.clientY - startY;
+  const width = Math.max(50, startWidth + (position.includes('e') ? dx : position.includes('w') ? -dx : 0));
+  const height = Math.max(50, startHeight + (position.includes('s') ? dy : position.includes('n') ? -dy : 0));
+  selectedEditorImage.style.width = `${width}px`;
+  selectedEditorImage.style.height = `${height}px`;
+  block.html = editorHtml(editor);
+  saveState();
+}
+function stopImageResize() {
+  resizeData = null;
+  document.removeEventListener('pointermove', resizeImage);
+}
+function editorHtml(editor) {
+  const copy = editor.cloneNode(true);
+  copy.querySelectorAll('.image-resize-handle').forEach(handle => handle.remove());
+  return copy.innerHTML;
+}
+function handleEditorPaste(event, editor, block) {
+  const clipboard = event.clipboardData;
+  const imageItem = [...(clipboard?.items || [])].find(item => item.type.startsWith('image/'));
+  const file = imageItem?.getAsFile() || [...(clipboard?.files || [])].find(item => item.type.startsWith('image/'));
+  const html = clipboard?.getData('text/html') || '';
+  const htmlImage = html ? new DOMParser().parseFromString(html, 'text/html').querySelector('img') : null;
+  const imageSource = htmlImage?.getAttribute('src');
+  if (!file && !imageSource) return;
+  event.preventDefault();
+  const insertImage = source => {
+    const image = document.createElement('img');
+    image.src = source;
+    image.alt = htmlImage?.getAttribute('alt') || 'Pasted image';
+    const range = window.getSelection()?.rangeCount ? window.getSelection().getRangeAt(0) : null;
+    const wrapper = wrapImage(editor, image, block);
+    if (!range || !editor.contains(range.commonAncestorContainer)) {
+      editor.append(document.createElement('br'), wrapper);
+    } else {
+      range.deleteContents();
+      range.insertNode(wrapper);
+      range.setStartAfter(wrapper);
+      range.collapse(true);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    block.html = editorHtml(editor);
+    saveState();
+  };
+  if (!file) {
+    insertImage(imageSource);
+    return;
+  }
+  const reader = new FileReader();
+  reader.addEventListener('load', () => {
+    if (typeof reader.result === 'string') insertImage(reader.result);
+  });
+  reader.readAsDataURL(file);
 }
 function enableBlockDragging(note, block, wrapper, drag, blockList) {
   drag.addEventListener('pointerdown', event => {
