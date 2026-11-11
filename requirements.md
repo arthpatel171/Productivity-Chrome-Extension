@@ -71,6 +71,7 @@ The full workspace is opened from the browser popup and contains three tabs:
   button.
 - Each text box has an editable title.
 - Each text box has a content-editable WYSIWYG editor.
+- Pasting text into a text box inserts plain text without clipboard formatting.
 - Pasting an image file, screenshot, or copied web image into a text box
   inserts it as a resizable image.
 - Pasted images can be selected to show eight resize handles and resized
@@ -190,11 +191,14 @@ Each task stores:
 - Optional reminder state
 - Optional original timestamps used when later tasks are shifted around an
   extended task
+- Optional pause state and an ordered list of pause intervals, each with a
+  start and end timestamp
 
 Task statuses include:
 
 - `scheduled`
 - `active`
+- `paused`
 - `extended`
 - `completed`
 
@@ -276,6 +280,12 @@ Task statuses include:
 - Finishing a task changes its status to completed, updates its effective end
   time, and stores its actual completion time.
 - A completed task no longer shows the Finish Task button.
+- An active or extended task can be paused from the browser popup or task
+  details. Pausing records the exact pause timestamp and does not complete the
+  task.
+- A paused task can be resumed from the browser popup or task details.
+- Resuming records the pause interval's exact end timestamp. A paused task
+  remains unfinished until the user finishes it.
 - Clicking **Delete task** asks for confirmation before removing the task.
 - The task delete control uses the same compact red trash button as note
   deletion.
@@ -331,6 +341,10 @@ Task statuses include:
 - Extended task events replace only the left side accent with a solid red bar.
 - Extended task events do not use a dashed border.
 - Task event labels show the task title and displayed start/end times.
+- Worked portions of a task use the task color as a solid fill.
+- Pause portions use transparent space with diagonal light-grey lines, from
+  the exact pause timestamp through the exact resume timestamp (or through
+  the current time while still paused).
 - Clicking or keyboard-activating a task event opens its task details.
 
 ### 7.4 Extended tasks and later tasks
@@ -353,25 +367,43 @@ Task statuses include:
 
 ### 7.5 Task color pie chart
 
-- A **Time by Category** pie chart is placed below the calendar.
+- An **Activity Breakdown** donut chart is placed below the calendar.
+- The chart header displays today's total tracked time and a Live Sync indicator.
+- The donut center displays the total tracked duration and the label
+  **Total tracked**.
+- Donut slices are separated by dark rounded gaps and grow slightly on hover.
+- Hovering a slice replaces the center content with that slice's elapsed time,
+  category name, and percentage; moving away restores the total tracked view.
 - It is populated while the Calendar view is rendered and is not shown in the
   Notes or Time tools sections.
 - The chart is empty when there are no valid task durations.
 - When there are no valid task durations, the chart displays a grey pie with
   horizontal white text reading **No day breakdown to display** and a white
-  border. Populated pies do not have that white border.
-- The chart includes valid current-state tasks regardless of whether they are
-  scheduled, active, extended, or completed.
-- Each task contributes its scheduled duration, calculated from its stored start
-  and scheduled end timestamps.
-- Tasks are grouped by their stored color.
-- Each color's percentage is its total scheduled duration divided by the total
-  scheduled duration of all included tasks.
+  border. Populated donuts do not have an outer border.
+- The chart includes elapsed time from active, paused, extended, and completed
+  tasks. Scheduled or delayed tasks that have not started do not appear.
+- Each task contributes its elapsed task window, ending at its actual completion
+  time or the current time while active, paused, or extended.
+- Each task's recorded pause minutes are removed from its color contribution.
+- If any task has a pause, the chart adds a **Break** category containing the
+  total pause minutes for the day. Its pie area is transparent with diagonal
+  light-grey lines.
+- Each color's percentage is its total worked duration divided by the total
+  worked and break duration of all included tasks.
+- The Break legend entry displays the total break share using the same
+  percentage format as color entries.
 - For example, three hours of red tasks and one hour of blue tasks produce a
   75% red and 25% blue chart.
 - The legend uses the standard color names from the task form.
 - A non-standard color is labeled with the associated task name or names.
 - The chart includes a colored legend marker and percentage for each color.
+- The chart represents time that has already occurred, not the full planned
+  duration of future tasks.
+- The chart legend displays each task's elapsed worked time in hours and
+  minutes. Total break time is also displayed when breaks exist.
+- The legend uses one bordered row per task, showing its color, title,
+  percentage, and elapsed duration. Breaks use a diagonal stripe swatch and
+  are shown as **Breaks**.
 
 ### 7.6 Previous-day cleanup
 

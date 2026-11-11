@@ -248,7 +248,11 @@ function handleEditorPaste(event, editor, block) {
   const html = clipboard?.getData('text/html') || '';
   const htmlImage = html ? new DOMParser().parseFromString(html, 'text/html').querySelector('img') : null;
   const imageSource = htmlImage?.getAttribute('src');
-  if (!file && !imageSource) return;
+  if (!file && !imageSource) {
+    event.preventDefault();
+    document.execCommand('insertText', false, clipboard?.getData('text/plain') || '');
+    return;
+  }
   event.preventDefault();
   const insertImage = source => {
     const image = document.createElement('img');
@@ -357,7 +361,30 @@ function applyTypingShortcut(editor) {
 
 function dayBounds() { const start = new Date(); start.setHours(0, 0, 0, 0); return { start, end: new Date(start.getTime() + 86400000) }; }
 function isFromPreviousDay(task) { const start = new Date(task.start); if (!isValidDate(start)) return false; const today = new Date(); today.setHours(0, 0, 0, 0); return start < today; }
-function taskDisplayEnd(task) { return task.status === 'extended' ? Math.min(now(), new Date(task.start).setHours(23, 59, 59, 999)) : new Date(task.end).getTime(); }
+function taskDisplayEnd(task) {
+  if (task.status === 'active') return new Date(task.end).getTime();
+  if (task.status === 'paused') return now();
+  return task.status === 'extended' ? Math.min(now(), new Date(task.start).setHours(23, 59, 59, 999)) : new Date(task.end).getTime();
+}
+function taskElapsedEnd(task) {
+  if (['active', 'paused'].includes(task.status)) return now();
+  return taskDisplayEnd(task);
+}
+function taskElapsedWindow(task) {
+  if (task.status === 'scheduled') return null;
+  const start = new Date(task.start).getTime();
+  const end = taskElapsedEnd(task);
+  return Number.isFinite(start) && Number.isFinite(end) && end > start ? { start, end } : null;
+}
+function taskBreaks(task, end) {
+  const breaks = (task.breaks || []).map(item => ({ start: new Date(item.start).getTime(), end: new Date(item.end).getTime() }))
+    .filter(item => Number.isFinite(item.start) && Number.isFinite(item.end) && item.end > item.start);
+  if (task.status === 'paused' && task.pausedAt) {
+    const start = new Date(task.pausedAt).getTime();
+    if (Number.isFinite(start) && end > start) breaks.push({ start, end });
+  }
+  return breaks;
+}
 function renderTasks() {
   const taskCountBeforeCleanup = state.tasks.length; state.tasks = state.tasks.filter(task => !isFromPreviousDay(task)); if (state.tasks.length !== taskCountBeforeCleanup) saveState('Previous-day tasks removed');
   syncExtendedTasks(); const calendar = $('#day-calendar'); const existingBody = calendar.querySelector('.calendar-day-body'); if (existingBody) calendarScrollTop = existingBody.scrollTop; calendar.replaceChildren(); renderTaskColorChart(); const day = dayBounds(); const configuredStart = state.calendar.visibleStartUserSet ? state.calendar.visibleStart : defaultCalendarStart(state.tasks); const startMinutes = Math.max(0, Math.min(1439, configuredStart)); const endMinutes = 1440; const range = endMinutes - startMinutes;
@@ -378,33 +405,85 @@ function renderTasks() {
 function renderTaskColorChart() {
   const chart = $('#task-color-chart'); chart.replaceChildren();
   const totals = new Map();
-  const taskNames = new Map();
+  const taskDurations = [];
+  const categoryLabels = new Map();
+  let breakTotal = 0;
   state.tasks.forEach(task => {
-    const start = new Date(task.start).getTime(); const end = new Date(task.end).getTime(); const duration = end - start;
-    if (!Number.isFinite(start) || !Number.isFinite(end) || duration <= 0) return;
+    const window = taskElapsedWindow(task);
+    if (!window) return;
+    const { start, end } = window; const duration = end - start;
     const color = /^#[0-9a-f]{6}$/i.test(task.color || '') ? task.color.toLowerCase() : '#2f6fae';
-    totals.set(color, (totals.get(color) || 0) + duration);
-    if (!STANDARD_COLORS.some(([, value]) => value.toLowerCase() === color)) {
-      const names = taskNames.get(color) || new Set();
-      names.add(task.title?.trim() || 'Untitled task');
-      taskNames.set(color, names);
-    }
+    if (!categoryLabels.has(color)) categoryLabels.set(color, STANDARD_COLORS.find(([, value]) => value.toLowerCase() === color)?.[0] || task.title?.trim() || 'Miscellaneous');
+    const breaks = taskBreaks(task, end);
+    const pausedDuration = breaks.reduce((total, item) => total + Math.max(0, Math.min(end, item.end) - Math.max(start, item.start)), 0);
+    const workedDuration = Math.max(0, duration - pausedDuration);
+    if (workedDuration) totals.set(color, (totals.get(color) || 0) + workedDuration);
+    if (workedDuration) taskDurations.push({ title: task.title?.trim() || 'Untitled task', color, duration: workedDuration });
+    breakTotal += pausedDuration;
   });
   const entries = [...totals.entries()].sort((first, second) => second[1] - first[1]);
+  if (breakTotal) entries.push(['break', breakTotal]);
   const totalDuration = entries.reduce((sum, entry) => sum + entry[1], 0);
-  const heading = document.createElement('h3'); heading.textContent = 'Time by Category'; chart.appendChild(heading);
+  const header = document.createElement('div'); header.className = 'task-chart-header';
+  const headingGroup = document.createElement('div');
+  const heading = document.createElement('h3'); heading.textContent = 'Activity Breakdown';
+  const total = document.createElement('p'); total.className = 'task-chart-total'; total.textContent = `Today's Total: ${formatElapsedDuration(totalDuration)}`;
+  headingGroup.append(heading, total);
+  const live = document.createElement('span'); live.className = 'task-chart-live'; live.innerHTML = '<span></span>Live Sync';
+  header.append(headingGroup, live); chart.appendChild(header);
   if (!totalDuration) {
     const pie = document.createElement('div'); pie.className = 'task-color-pie task-color-pie-empty'; pie.setAttribute('role', 'img'); pie.setAttribute('aria-label', 'No day breakdown to display');
     const message = document.createElement('span'); message.textContent = 'No day breakdown to display'; pie.appendChild(message); chart.appendChild(pie);
     return;
   }
-  let angle = 0; const stops = [];
-  entries.forEach(([color, duration]) => { const percentage = duration / totalDuration * 100; stops.push(`${color} ${angle}deg ${angle + percentage * 3.6}deg`); angle += percentage * 3.6; });
-  const pie = document.createElement('div'); pie.className = 'task-color-pie'; pie.style.background = `conic-gradient(${stops.join(', ')})`; pie.setAttribute('role', 'img'); pie.setAttribute('aria-label', 'Task time distribution by color'); chart.appendChild(pie);
+  const pie = document.createElement('div'); pie.className = 'task-color-pie'; pie.setAttribute('role', 'img'); pie.setAttribute('aria-label', 'Task time distribution by color and breaks');
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', '0 0 220 220'); svg.classList.add('task-chart-svg');
+  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+  const pattern = document.createElementNS('http://www.w3.org/2000/svg', 'pattern'); pattern.id = 'break-pattern'; pattern.setAttribute('width', '12'); pattern.setAttribute('height', '12'); pattern.setAttribute('patternTransform', 'rotate(45)'); pattern.setAttribute('patternUnits', 'userSpaceOnUse');
+  const stripe = document.createElementNS('http://www.w3.org/2000/svg', 'rect'); stripe.setAttribute('width', '6'); stripe.setAttribute('height', '12'); stripe.setAttribute('fill', '#475569'); pattern.appendChild(stripe); defs.appendChild(pattern); svg.appendChild(defs);
+  const centerValue = document.createElement('strong'); centerValue.textContent = formatElapsedDuration(totalDuration);
+  const centerLabel = document.createElement('span'); centerLabel.textContent = 'Total tracked';
+  const center = document.createElement('div'); center.className = 'task-chart-center'; center.append(centerValue, centerLabel);
+  const polar = (radius, degrees) => { const radians = (degrees - 90) * Math.PI / 180; return [110 + radius * Math.cos(radians), 110 + radius * Math.sin(radians)]; };
+  const donutPath = (startAngle, endAngle) => { const outerStart = polar(103, startAngle); const outerEnd = polar(103, endAngle); const innerStart = polar(64, endAngle); const innerEnd = polar(64, startAngle); const large = endAngle - startAngle > 180 ? 1 : 0; return `M ${outerStart[0]} ${outerStart[1]} A 103 103 0 ${large} 1 ${outerEnd[0]} ${outerEnd[1]} L ${innerStart[0]} ${innerStart[1]} A 64 64 0 ${large} 0 ${innerEnd[0]} ${innerEnd[1]} Z`; };
+  let angle = 0;
+  entries.forEach(([color, duration], index) => {
+    const span = duration / totalDuration * 360;
+    const gap = Math.min(3, span / 4);
+    const startAngle = angle + gap; const endAngle = angle + span - gap;
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', donutPath(startAngle, endAngle)); path.setAttribute('fill', color === 'break' ? 'url(#break-pattern)' : color); path.classList.add('task-chart-slice');
+    const label = color === 'break' ? 'Breaks' : categoryLabels.get(color) || 'Miscellaneous';
+    path.addEventListener('mouseenter', () => { centerValue.textContent = formatElapsedDuration(duration); centerValue.style.color = color === 'break' ? 'var(--muted)' : color; centerLabel.textContent = `${label} (${(duration / totalDuration * 100).toFixed(1)}%)`; path.classList.add('is-hovered'); });
+    path.addEventListener('mouseleave', () => { centerValue.textContent = formatElapsedDuration(totalDuration); centerValue.style.color = ''; centerLabel.textContent = 'Total tracked'; path.classList.remove('is-hovered'); });
+    svg.appendChild(path); angle += span;
+  });
+  pie.append(svg, center);
+  const donut = document.createElement('div'); donut.className = 'task-chart-donut';
+  donut.append(pie); chart.appendChild(donut);
   const legend = document.createElement('ul'); legend.className = 'task-color-legend';
-  entries.forEach(([color, duration]) => { const item = document.createElement('li'); const swatch = document.createElement('span'); swatch.className = 'task-color-legend-swatch'; swatch.style.backgroundColor = color; const label = document.createElement('span'); const colorName = STANDARD_COLORS.find(([, value]) => value.toLowerCase() === color)?.[0] || [...(taskNames.get(color) || ['Miscellaneous'])].join(', '); label.textContent = `${colorName} · ${(duration / totalDuration * 100).toFixed(1)}%`; item.append(swatch, label); legend.appendChild(item); });
+  taskDurations.forEach(task => {
+    const item = document.createElement('li'); item.className = 'task-chart-legend-item';
+    const swatch = document.createElement('span'); swatch.className = 'task-color-legend-swatch'; swatch.style.backgroundColor = task.color || '#2f6fae';
+    const details = document.createElement('span'); details.className = 'task-chart-legend-details';
+    const label = document.createElement('span'); label.textContent = task.title;
+    const percentage = document.createElement('small'); percentage.textContent = `${(task.duration / totalDuration * 100).toFixed(1)}%`;
+    details.append(label, percentage);
+    const duration = document.createElement('strong'); duration.textContent = formatElapsedDuration(task.duration);
+    item.append(swatch, details, duration); legend.appendChild(item);
+  });
+  if (breakTotal) {
+    const item = document.createElement('li'); item.className = 'task-chart-legend-item';
+    const swatch = document.createElement('span'); swatch.className = 'task-color-legend-swatch break';
+    const details = document.createElement('span'); details.className = 'task-chart-legend-details';
+    const label = document.createElement('span'); label.textContent = 'Breaks';
+    const percentage = document.createElement('small'); percentage.textContent = `${(breakTotal / totalDuration * 100).toFixed(1)}%`;
+    details.append(label, percentage);
+    const duration = document.createElement('strong'); duration.textContent = formatElapsedDuration(breakTotal);
+    item.append(swatch, details, duration); legend.appendChild(item);
+  }
   chart.appendChild(legend);
 }
+function formatElapsedDuration(value) { const minutes = Math.round(value / 60000); const hours = Math.floor(minutes / 60); const remainder = minutes % 60; if (!hours) return `${remainder}m`; if (!remainder) return `${hours}h`; return `${hours}h ${remainder}m`; }
 function calendarMinuteOffset(minute, visibleStart) { return Math.max(0, minute - visibleStart) * CALENDAR_PIXELS_PER_MINUTE; }
 function sameLocalDay(first, second) { return first.getFullYear() === second.getFullYear() && first.getMonth() === second.getMonth() && first.getDate() === second.getDate(); }
 function createVisibleTimeEditor(startMinutes) {
@@ -464,7 +543,18 @@ function parseClockEditor(editor) {
 }
 function renderTaskEvent(events, task, dayStart, visibleStart, visibleEnd) {
   const start = Math.max(new Date(task.start).getTime(), dayStart.getTime() + visibleStart * 60000); const end = Math.min(taskDisplayEnd(task), dayStart.getTime() + visibleEnd * 60000); if (end <= start) return;
-  const event = document.createElement('article'); event.className = `calendar-event task-${task.status || 'scheduled'}${task.status === 'extended' ? ' is-extended' : ''}`; event.style.setProperty('--task-color', task.color || '#234f7d'); event.style.top = `${calendarMinuteOffset((start - dayStart.getTime()) / 60000, visibleStart)}px`; event.style.height = `${(end - start) / 60000 * CALENDAR_PIXELS_PER_MINUTE}px`; event.innerHTML = `<strong>${escapeHtml(task.title)}</strong><span>${formatClock(new Date(start))} - ${formatClock(new Date(end))}</span>`; event.title = task.description || task.title; event.tabIndex = 0; event.addEventListener('click', () => editTask(task)); event.addEventListener('keydown', keyboardEvent => { if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') { keyboardEvent.preventDefault(); editTask(task); } }); events.appendChild(event);
+  const event = document.createElement('article'); event.className = `calendar-event task-${task.status || 'scheduled'}${task.status === 'extended' ? ' is-extended' : ''}`; event.style.setProperty('--task-color', task.color || '#234f7d'); event.style.top = `${calendarMinuteOffset((start - dayStart.getTime()) / 60000, visibleStart)}px`; event.style.height = `${(end - start) / 60000 * CALENDAR_PIXELS_PER_MINUTE}px`;
+  const breaks = taskBreaks(task, end).map(item => ({ start: Math.max(start, item.start), end: Math.min(end, item.end) })).filter(item => item.end > item.start);
+  const segments = []; let cursor = start;
+  breaks.sort((first, second) => first.start - second.start).forEach(item => {
+    if (item.start > cursor) segments.push({ start: cursor, end: item.start, type: 'work' });
+    segments.push({ start: Math.max(cursor, item.start), end: item.end, type: 'break' });
+    cursor = Math.max(cursor, item.end);
+  });
+  if (cursor < end) segments.push({ start: cursor, end, type: 'work' });
+  segments.forEach(segment => { const part = document.createElement('div'); part.className = `calendar-event-segment ${segment.type}`; part.style.top = `${(segment.start - start) / 60000 * CALENDAR_PIXELS_PER_MINUTE}px`; part.style.height = `${(segment.end - segment.start) / 60000 * CALENDAR_PIXELS_PER_MINUTE}px`; event.appendChild(part); });
+  const label = document.createElement('div'); label.className = 'calendar-event-label'; label.innerHTML = `<strong>${escapeHtml(task.title)}</strong><span>${formatClock(new Date(start))} - ${formatClock(new Date(end))}</span>`; event.appendChild(label);
+  event.title = task.description || task.title; event.tabIndex = 0; event.addEventListener('click', () => editTask(task)); event.addEventListener('keydown', keyboardEvent => { if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') { keyboardEvent.preventDefault(); editTask(task); } }); events.appendChild(event);
 }
 function syncExtendedTasks() {
   const current = now(); let changed = false;
@@ -482,9 +572,31 @@ function syncExtendedTasks() {
 function editTask(task) {
   taskBeingEdited = task; const form = $('#task-form'); form.hidden = false; form.elements.title.value = task.title || ''; form.elements.description.value = task.description || ''; form.elements.color.value = task.color || '#2f6fae'; syncTaskColorPicker(); setTimeFields(form, 'start', new Date(task.start)); setTimeFields(form, 'end', new Date(task.end));
   $('#task-meta').textContent = task.actualEnd ? `Scheduled: ${formatDate(new Date(task.end))} · Actual end: ${formatDate(new Date(task.actualEnd))}` : `Scheduled: ${formatDate(new Date(task.start))} - ${formatDate(new Date(task.end))}`;
-  const actions = form.querySelector('.form-actions'); actions.querySelectorAll('.task-action').forEach(item => item.remove()); if (task.status !== 'completed') { const end = button('Finish Task', 'success task-action'); end.addEventListener('click', () => finishTask(task)); actions.prepend(end); } const remove = button('🗑️', 'note-delete-button task-action'); remove.title = 'Delete task'; remove.setAttribute('aria-label', `Delete ${task.title || 'untitled task'}`); remove.addEventListener('click', () => deleteTask(task)); actions.prepend(remove); document.querySelector('[data-view="calendar-view"]').click(); window.scrollTo({ top: 0, behavior: 'smooth' });
+  const actions = form.querySelector('.form-actions'); actions.querySelectorAll('.task-action').forEach(item => item.remove()); if (task.status !== 'completed') { const end = button('Finish Task', 'success task-action'); end.addEventListener('click', () => finishTask(task)); actions.prepend(end); if (['active', 'extended', 'paused'].includes(task.status)) { const pause = button(task.status === 'paused' ? 'Resume Task' : 'Pause Task', 'task-action'); pause.addEventListener('click', () => toggleTaskPause(task)); actions.prepend(pause); } } const remove = button('🗑️', 'note-delete-button task-action'); remove.title = 'Delete task'; remove.setAttribute('aria-label', `Delete ${task.title || 'untitled task'}`); remove.addEventListener('click', () => deleteTask(task)); actions.prepend(remove); document.querySelector('[data-view="calendar-view"]').click(); window.scrollTo({ top: 0, behavior: 'smooth' });
 }
-function finishTask(task) { const endedAt = new Date().toISOString(); task.status = 'completed'; task.end = endedAt; task.completedAt = endedAt; task.actualEnd = endedAt; saveState('Task ended'); renderTasks(); editTask(task); }
+function toggleTaskPause(task) {
+  const timestamp = new Date().toISOString();
+  if (task.status === 'paused') {
+    if (task.pausedAt) task.breaks = [...(task.breaks || []), { start: task.pausedAt, end: timestamp }];
+    task.pausedAt = null;
+    task.status = new Date(task.end).getTime() <= now() ? 'extended' : 'active';
+    saveState('Task resumed');
+  } else if (['active', 'extended'].includes(task.status)) {
+    task.status = 'paused';
+    task.pausedAt = timestamp;
+    saveState('Task paused');
+  }
+  renderTasks();
+  editTask(task);
+}
+function finishTask(task) {
+  const endedAt = new Date().toISOString();
+  if (task.status === 'paused' && task.pausedAt) {
+    task.breaks = [...(task.breaks || []), { start: task.pausedAt, end: endedAt }];
+    task.pausedAt = null;
+  }
+  task.status = 'completed'; task.end = endedAt; task.completedAt = endedAt; task.actualEnd = endedAt; saveState('Task ended'); renderTasks(); editTask(task);
+}
 function deleteTask(task) { if (!confirm(`Delete "${task.title}"?`)) return; state.tasks = state.tasks.filter(item => item.id !== task.id); taskBeingEdited = null; $('#task-form').hidden = true; saveState('Task deleted'); renderTasks(); }
 function syncTaskColorPicker() { const picker = $('.task-color-picker'); const input = document.querySelector('#task-form [name="color"]'); if (!picker || !input) return; picker.querySelectorAll('.standard-color').forEach(button => button.classList.toggle('is-selected', button.dataset.color.toLowerCase() === input.value.toLowerCase())); }
 function setupTaskColorPicker() { const picker = $('.task-color-picker'); const input = document.querySelector('#task-form [name="color"]'); if (!picker || !input) return; const colors = picker.querySelector('.standard-colors'); STANDARD_COLORS.forEach(([name, value]) => { const swatch = button('', 'standard-color'); swatch.dataset.color = value; swatch.title = name; swatch.setAttribute('aria-label', name); swatch.style.backgroundColor = value; swatch.addEventListener('click', () => { input.value = value; syncTaskColorPicker(); }); colors.appendChild(swatch); }); picker.querySelector('.custom-color-button').addEventListener('click', () => input.click()); input.addEventListener('input', syncTaskColorPicker); syncTaskColorPicker(); }
@@ -537,7 +649,7 @@ function wireEvents() {
     event.preventDefault(); const form = event.currentTarget; const taskDate = taskBeingEdited ? new Date(taskBeingEdited.start) : new Date(); const enteredStart = parseTimeOnDate(taskDate, form.elements.startTime.value, form.elements.startPeriod.value); const endInput = form.elements.endTime.value.trim(); const end = endInput ? parseTimeOnDate(taskDate, endInput, form.elements.endPeriod.value) : enteredStart ? new Date(enteredStart.getTime() + 60 * 60000) : null; const current = new Date(); const startsNow = !taskBeingEdited && enteredStart && enteredStart.getHours() === current.getHours() && enteredStart.getMinutes() === current.getMinutes(); const start = startsNow ? current : enteredStart;
     if (!start || !end) return setStatus('Enter valid start and end time values.'); if (!sameLocalDay(start, end)) return setStatus('Tasks must start and end on the same day.'); if (end <= start) return setStatus('End time must be after the start time.'); if (end.getTime() - start.getTime() >= 86400000) return setStatus('Tasks cannot be longer than one day.'); if (overlaps(start, end, taskBeingEdited?.id)) return setStatus('Tasks cannot overlap.');
     const values = { title: form.elements.title.value.trim(), description: form.elements.description.value.trim(), color: form.elements.color.value, start: start.toISOString(), end: end.toISOString() }; if (!values.title) return setStatus('Enter a task title.');
-    if (taskBeingEdited) Object.assign(taskBeingEdited, values); else state.tasks.push({ id: crypto.randomUUID(), ...values, status: startsNow ? 'active' : 'scheduled', completedAt: null });
+    if (taskBeingEdited) Object.assign(taskBeingEdited, values); else state.tasks.push({ id: crypto.randomUUID(), ...values, status: startsNow ? 'active' : 'scheduled', completedAt: null, breaks: [], pausedAt: null });
     saveState('Task saved'); taskBeingEdited = null; form.reset(); form.hidden = true; renderTasks();
   });
   $('#stopwatch-toggle').addEventListener('click', () => { if (state.stopwatch.startedAt) { state.stopwatch.elapsed += now() - state.stopwatch.startedAt; state.stopwatch.startedAt = null; $('#stopwatch-toggle').textContent = 'Resume'; } else { state.stopwatch.startedAt = now(); $('#stopwatch-toggle').textContent = 'Pause'; } saveState(); });

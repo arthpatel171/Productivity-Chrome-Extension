@@ -43,15 +43,20 @@ No other Time tools condition can trigger a popup.
 
 When the user opens the extension's browser action popup:
 
-- An extended task is shown with red text stating that a task is still active.
+- An extended task shows its scheduled end time in the same white text style as
+  its start time.
 - The extended-task status includes a **Finish task** button.
 - An active task includes a **Finish task** button.
+- An active or extended task includes a **Pause** control.
+- A paused task includes a **Resume** control and remains unfinished.
 - A scheduled task whose start time was delayed is shown with red text stating
   that its scheduled start time has passed.
 - The delayed-task status includes a **Start** button.
 - **Finish task** completes the extended task.
 - **Finish task** also completes an active task.
 - **Start** starts the delayed task and changes it to active.
+- **Pause** records the exact break start without completing the task.
+- **Resume** records the exact break end and returns the task to active work.
 
 These browser action popup notices remain available until the corresponding task
 action is taken or the task is finished from the workspace. The extension must
@@ -59,7 +64,7 @@ not use them as a recurring notification.
 
 ## Browser action popup interface
 
-- The popup provides Offline Workspace branding, a theme toggle, a
+- The popup provides Offline Workspace branding, a pause/resume task control, a
   **Silent notifications** checkbox, and an **Open workspace** button.
 - Checking **Silent notifications** suppresses browser notifications while
   timers, task alarms, and task scheduling continue to operate.
@@ -69,8 +74,8 @@ not use them as a recurring notification.
 - The popup can show non-completed task status, including each task's title,
   start time, and scheduled end time.
 - Task cards use the stored task color as their background color.
-- Extended task end text uses late styling.
+- Extended task end text uses the same white style as the start time.
 - The popup includes an informational tooltip explaining browser notifications.
 - The silent-notifications setting is persisted.
-- Popup theme changes are synchronized with the workspace through shared
-  storage.
+- The pause/resume control targets the current active, extended, or paused task
+  and is disabled when no such task exists.

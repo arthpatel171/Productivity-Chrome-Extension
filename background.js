@@ -60,7 +60,7 @@ async function scheduleAllTasks() {
     const start = new Date(task.start).getTime();
     const end = new Date(task.end).getTime();
     if (start > Date.now()) await chrome.alarms.create(START_ALARM(task.id), { when: start });
-    if (task.status !== 'extended' && !task.delayed && end > Date.now()) await chrome.alarms.create(END_ALARM(task.id), { when: end });
+    if (!['extended', 'paused'].includes(task.status) && !task.delayed && end > Date.now()) await chrome.alarms.create(END_ALARM(task.id), { when: end });
   }
   if (state.tasks?.some(task => task.status === 'extended')) await chrome.alarms.create(TASK_TICK, { periodInMinutes: 1 });
   if (state.countdown?.endsAt > Date.now()) await chrome.alarms.create(COUNTDOWN_ALARM, { when: state.countdown.endsAt });
@@ -97,6 +97,7 @@ async function handleAlarm(alarm) {
   const state = await getState();
   const task = (state.tasks || []).find(item => item.id === match[2]);
   if (!task || task.status === 'completed') return;
+  if (match[1] === 'end' && task.status === 'paused') return;
   if (match[1] === 'end') task.status = 'extended';
   task.reminded = { ...(task.reminded || {}), [match[1]]: true };
   await chrome.storage.local.set({ todoState: state });
@@ -114,7 +115,7 @@ async function checkMissedTasks() {
       task.reminded = { ...(task.reminded || {}), start: true };
       await showTaskNotification(task, 'start');
     }
-    if (task.status !== 'extended' && !task.delayed && end <= current && !task.reminded?.end) {
+    if (!['extended', 'paused'].includes(task.status) && !task.delayed && end <= current && !task.reminded?.end) {
       task.status = 'extended';
       task.reminded = { ...(task.reminded || {}), end: true };
       await showTaskNotification(task, 'end');
@@ -225,7 +226,14 @@ async function handleMessage(message) {
     const state = await getState();
     const task = (state.tasks || []).find(item => item.id === message.taskId);
     if (!task) return;
-    if (message.action === 'finish') { task.status = 'completed'; task.end = new Date().toISOString(); task.actualEnd = task.end; task.completedAt = task.end; }
+    if (message.action === 'finish') {
+      const endedAt = new Date().toISOString();
+      if (task.status === 'paused' && task.pausedAt) {
+        task.breaks = [...(task.breaks || []), { start: task.pausedAt, end: endedAt }];
+        task.pausedAt = null;
+      }
+      task.status = 'completed'; task.end = endedAt; task.actualEnd = task.end; task.completedAt = task.end;
+    }
     if (message.action === 'extend') { task.status = 'extended'; task.delayed = false; }
     if (message.action === 'start') {
       if (new Date(task.end).getTime() <= Date.now()) {
@@ -234,6 +242,16 @@ async function handleMessage(message) {
         task.end = new Date(Date.now() + duration).toISOString();
       }
       task.status = 'active'; task.delayed = false; task.reminded = { ...(task.reminded || {}), start: true };
+    }
+    if (message.action === 'pause' && ['active', 'extended'].includes(task.status)) {
+      task.status = 'paused';
+      task.pausedAt = new Date().toISOString();
+    }
+    if (message.action === 'resume' && task.status === 'paused') {
+      const resumedAt = new Date().toISOString();
+      if (task.pausedAt) task.breaks = [...(task.breaks || []), { start: task.pausedAt, end: resumedAt }];
+      task.pausedAt = null;
+      task.status = new Date(task.end).getTime() <= Date.now() ? 'extended' : 'active';
     }
     if (message.action === 'delay') { task.delayed = true; task.reminded = { ...(task.reminded || {}), start: true }; }
     if (message.action === 'extend') shiftExtendedTasks(state);
