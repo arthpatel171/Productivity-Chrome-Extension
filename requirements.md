@@ -182,7 +182,6 @@ Each task stores:
 
 - A unique identifier
 - Title
-- Optional description
 - Color
 - Local start timestamp
 - Local scheduled end timestamp
@@ -208,7 +207,6 @@ Task statuses include:
 - The task form contains:
   - Title
   - Color
-  - Optional description
   - Start time
   - End time (required for tasks that start immediately)
   - Save task
@@ -236,11 +234,34 @@ Task statuses include:
 - New tasks may have a start time earlier than, equal to, or later than the
   current time.
 - Existing tasks can be opened by clicking their calendar event.
+- Task details use a modal-style editor layout with a colored task badge,
+  grouped title/color controls, a schedule card, a scheduled-breaks section,
+  and a separate action footer.
+- The task editor matches the dark reference layout: compact header with close
+  control, uppercase field labels, rounded dark inputs, a schedule summary pill,
+  compact break rows, and colored footer actions.
+- The task-details action footer places Delete Task on the left and Cancel,
+  pause/resume, finish, and Save Task controls on the right.
 - Editing an existing task uses the task's stored local day and populates its
   stored start and end times.
 - Editing does not expose date fields.
-- Saving an edit updates the task's title, description, color, start, and end
-  values while preserving its existing task identity.
+- Saving an edit updates the task's title, color, start, and end values while
+  preserving its existing task identity.
+- Task details allow adding, editing, and removing break intervals.
+- A break interval must have an end after its start, must remain within the
+  task's scheduled start and end, and cannot overlap another break. If an
+  unfinished task has passed its scheduled end, the current time is the
+  allowed upper bound instead.
+- Break intervals are persisted with the task and do not change its scheduled
+  start or end.
+- When a scheduled break start time arrives for an active task, a browser
+  notification appears with "It's time to take a break" and Begin / Cancel
+  buttons. Begin starts the break as scheduled (pausing the task), while Cancel
+  does not start the break and removes that break from the task schedule.
+- When a scheduled break end time arrives, a browser notification appears displaying
+  "Time to resume [Task Name]" with Resume / Snooze buttons provided the task is active.
+  Resume returns the task to active work; Snooze continues the break and triggers the
+  notification again every 5 minutes until the user clicks resume.
 - The title is required.
 - Invalid time text, invalid AM/PM combinations, or missing required values
   produce a status message.
@@ -324,8 +345,10 @@ Task statuses include:
 - At 12:01 AM without an earlier task, the automatic start is 12:00 AM.
 - The Day start control in the calendar header allows the user to enter a
   different start time with a clock textbox and AM/PM selector.
-- A manually selected start time is persisted and takes precedence over the
-  automatic calculation.
+- A manually selected start time takes precedence over the automatic
+  calculation during the current extension session. The automatic start is
+  calculated in memory when the extension is first opened for the day and is
+  not stored as a day-specific value.
 - If the visible start is 11:59 PM, the calendar body is omitted rather than
   rendering an invalid range.
 
@@ -380,10 +403,12 @@ Task statuses include:
 - When there are no valid task durations, the chart displays a grey pie with
   horizontal white text reading **No day breakdown to display** and a white
   border. Populated donuts do not have an outer border.
-- The chart includes elapsed time from active, paused, extended, and completed
-  tasks. Scheduled or delayed tasks that have not started do not appear.
+- The chart includes elapsed time from active, paused, extended, completed, and
+  scheduled tasks whose start time has arrived. Future scheduled tasks and
+  explicitly delayed tasks that have not started do not appear.
 - Each task contributes its elapsed task window, ending at its actual completion
-  time or the current time while active, paused, or extended.
+  time or the current time while active, paused, extended, or scheduled after
+  its start time has arrived.
 - Each task's recorded pause minutes are removed from its color contribution.
 - If any task has a pause, the chart adds a **Break** category containing the
   total pause minutes for the day. Its pie area is transparent with diagonal
@@ -397,8 +422,11 @@ Task statuses include:
 - The legend uses the standard color names from the task form.
 - A non-standard color is labeled with the associated task name or names.
 - The chart includes a colored legend marker and percentage for each color.
-- The chart represents time that has already occurred, not the full planned
-  duration of future tasks.
+- The chart's current-day time window begins at the starting time of the first
+  included task and ends at the current time. It represents time that has
+  already occurred, not the full planned duration of future tasks. For
+  example, a task scheduled from 4:00 PM to 9:00 PM contributes only about
+  one minute when the current time is 4:01 PM.
 - The chart legend displays each task's elapsed worked time in hours and
   minutes. Total break time is also displayed when breaks exist.
 - The legend uses one bordered row per task, showing its color, title,
@@ -493,13 +521,14 @@ Import behavior:
 
 ## 11. Persistence and live synchronization
 
-- Workspace state is persisted in one `todoState` object in
-  `chrome.storage.local`.
+- Workspace state is persisted using granular keys in `chrome.storage.local`:
+  `notes`, `tasks`, `stopwatch`, `countdown`, `settings`, and `calendar`.
 - Persisted state includes notes, tasks, stopwatch data, countdown data,
   settings, recent fonts, custom text-box colors, and calendar start settings.
-- The workspace listens for storage changes from the popup and service worker.
-- External state changes refresh the workspace when the user is not actively
-  editing a text field or contenteditable editor.
+- The workspace listens for storage changes across open tabs, the popup, and the
+  service worker.
+- External state changes update in-memory state and refresh the workspace so
+  that multiple open tabs always display current data.
 - Theme changes are applied when synchronized state changes.
 - Stopwatch and countdown displays update every second while the workspace is
   open.
@@ -509,18 +538,19 @@ Import behavior:
 
 ## 12. Background service-worker behavior
 
-- Installation schedules persisted tasks and countdowns.
-- Browser startup schedules persisted tasks and countdowns and checks for missed
+- Installation schedules persisted tasks, breaks, and countdowns.
+- Browser startup schedules persisted tasks, breaks, and countdowns and checks for missed
   reminders.
-- Storage changes cause task and countdown alarms to be rebuilt.
-- Existing task-start, task-end, task-extension, and countdown alarms are
+- Storage changes cause task, break, and countdown alarms to be rebuilt.
+- Existing task-start, task-end, task-break-start, task-break-end, task-extension, and countdown alarms are
   cleared before rebuilding.
-- Completed tasks do not receive future task alarms.
-- Disabled extension state prevents task and reminder scheduling.
+- Completed tasks do not receive future task or break alarms.
+- Disabled extension state prevents task, break, and reminder scheduling.
 - Extended tasks receive a periodic extension tick.
+- Active break snoozes repeat every 5 minutes until the task is resumed.
 - Countdown alarms clear or recreate correctly when a countdown starts or resets.
 - Background task actions update shared storage and reschedule affected alarms.
-- Timer and task alerts use browser system notifications and do not require
+- Timer, break, and task alerts use browser system notifications and do not require
   website host permissions or injected content scripts.
 - Background failures are logged to the service worker console.
 
@@ -554,8 +584,7 @@ The following are not implemented:
 - Notes can be created, selected, titled, formatted, reordered, collapsed, and
   deleted with state persisted locally.
 - Font selection includes previews and persisted recently used fonts.
-- Tasks can be created with title, description, color, start time, and optional
-  end time.
+- Tasks can be created with title, color, start time, and optional end time.
 - A task entered for the current local minute is created as active; other task
   start times are created as scheduled, including start times in the past.
 - Tasks can be edited, finished at the current time, and deleted.

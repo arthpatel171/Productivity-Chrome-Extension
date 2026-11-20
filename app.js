@@ -9,8 +9,32 @@ const FONT_OPTIONS = [
   ['Times New Roman', '"Times New Roman", serif'], ['Trebuchet MS', '"Trebuchet MS", sans-serif'],
   ['Verdana', 'Verdana, sans-serif'], ['Handlee', 'Handlee, cursive']
 ];
-const STANDARD_COLORS = [['Dark Red', '#8b0000'], ['Red', '#dc2626'], ['Orange', '#f97316'], ['Yellow', '#facc15'], ['Light Green', '#86efac'], ['Green', '#16a34a'], ['Teal', '#14b8a6'], ['Blue', '#2563eb'], ['Dark Blue', '#123b66'], ['Purple', '#8b5cf6']];
+const STANDARD_COLORS = [
+  ['Dark Red', '#B71C1C'],
+  ['Red', '#E53935'],
+  ['Orange', '#FF9800'],
+  ['Yellow', '#FDD835'],
+  ['Light Green', '#A7F3D0'],
+  ['Green', '#4CAF50'],
+  ['Teal', '#00BCD4'],
+  ['Blue', '#2196F3'],
+  ['Dark Blue', '#1565C0'],
+  ['Purple', '#A855F7']
+];
+const LEGACY_COLORS = new Map([
+  ['#8b0000', 'Dark Red'],
+  ['#dc2626', 'Red'],
+  ['#f97316', 'Orange'],
+  ['#facc15', 'Yellow'],
+  ['#86efac', 'Light Green'],
+  ['#16a34a', 'Green'],
+  ['#14b8a6', 'Teal'],
+  ['#2563eb', 'Blue'],
+  ['#123b66', 'Dark Blue'],
+  ['#8b5cf6', 'Purple']
+]);
 const CALENDAR_PIXELS_PER_MINUTE = 2;
+function localDayKey(date = new Date()) { return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`; }
 function defaultCalendarStart(tasks = []) { const current = new Date(); const currentMinutes = current.getHours() * 60 + current.getMinutes(); const starts = [Math.floor(currentMinutes / 30) * 30]; tasks.filter(task => isValidDate(task.start) && sameLocalDay(new Date(task.start), current)).forEach(task => { const start = new Date(task.start); starts.push(Math.floor((start.getHours() * 60 + start.getMinutes()) / 30) * 30); }); return Math.min(...starts, 8 * 60); }
 const DEFAULT_STATE = {
   notes: [{ id: crypto.randomUUID(), title: 'Welcome note', blocks: [{ id: crypto.randomUUID(), title: 'Ideas', html: '<p>Start writing here.</p>', collapsed: false, width: 100, height: 180, fontFamily: 'Arial, sans-serif', customColors: [] }] }],
@@ -26,47 +50,210 @@ let activeEditor;
 let stopwatchInterval;
 let countdownInterval;
 let calendarInterval;
+let chartInterval;
 let taskBeingEdited;
+const STORAGE_KEYS = ['notes', 'tasks', 'stopwatch', 'countdown', 'settings', 'calendar'];
 let calendarScrollTop = 0;
+let calendarDay;
 let saving = false;
-let lastSavedStateJson = '';
+const lastSavedJson = {
+  notes: '',
+  tasks: '',
+  stopwatch: '',
+  countdown: '',
+  settings: '',
+  calendar: ''
+};
 let selectedEditorImage = null;
+let resizingEditorImage = false;
 let resizeData = null;
 const $ = selector => document.querySelector(selector);
 const now = () => Date.now();
 const clone = value => JSON.parse(JSON.stringify(value));
 
 async function loadState() {
-  const stored = await chrome.storage.local.get('todoState');
-  state = { ...clone(DEFAULT_STATE), ...(stored.todoState || {}) };
-  state.notes = Array.isArray(state.notes) && state.notes.length ? state.notes : clone(DEFAULT_STATE.notes);
-  state.tasks = Array.isArray(state.tasks) ? state.tasks : [];
+  const stored = await chrome.storage.local.get([...STORAGE_KEYS, 'todoState']);
+  if (!stored.tasks && stored.todoState) {
+    const legacy = stored.todoState;
+    stored.notes = legacy.notes;
+    stored.tasks = legacy.tasks;
+    stored.stopwatch = legacy.stopwatch;
+    stored.countdown = legacy.countdown;
+    stored.settings = legacy.settings;
+    stored.calendar = legacy.calendar;
+    await chrome.storage.local.set({
+      notes: stored.notes || clone(DEFAULT_STATE.notes),
+      tasks: stored.tasks || clone(DEFAULT_STATE.tasks),
+      stopwatch: stored.stopwatch || clone(DEFAULT_STATE.stopwatch),
+      countdown: stored.countdown || clone(DEFAULT_STATE.countdown),
+      settings: stored.settings || clone(DEFAULT_STATE.settings),
+      calendar: stored.calendar || clone(DEFAULT_STATE.calendar)
+    });
+  }
+
+  state = {
+    notes: Array.isArray(stored.notes) && stored.notes.length ? stored.notes : clone(DEFAULT_STATE.notes),
+    tasks: Array.isArray(stored.tasks) ? stored.tasks : [],
+    stopwatch: stored.stopwatch || clone(DEFAULT_STATE.stopwatch),
+    countdown: stored.countdown || clone(DEFAULT_STATE.countdown),
+    settings: { ...clone(DEFAULT_STATE.settings), ...(stored.settings || {}) },
+    calendar: { ...clone(DEFAULT_STATE.calendar), ...(stored.calendar || {}) }
+  };
+
   const taskCountBeforeCleanup = state.tasks.length;
   state.tasks = state.tasks.filter(task => !isFromPreviousDay(task));
   const removedPreviousDayTasks = state.tasks.length !== taskCountBeforeCleanup;
-  state.settings = { ...clone(DEFAULT_STATE.settings), ...(state.settings || {}) };
+
   applyTheme(state.settings.theme, false);
   applyBackgroundImage(state.settings.backgroundImageUrl);
-  state.calendar = { ...clone(DEFAULT_STATE.calendar), ...(state.calendar || {}) };
-  if (!stored.todoState?.calendar || !state.calendar.visibleStartUserSet || (state.calendar.visibleStart === 0 && state.calendar.visibleEnd === 1440)) {
-    state.calendar.visibleStart = defaultCalendarStart(state.tasks);
-    state.calendar.visibleEnd = 1440;
-    state.calendar.visibleStartUserSet = false;
+
+  const storedCalendar = stored.calendar || {};
+  const hasPersistedCalendarDay = Object.prototype.hasOwnProperty.call(storedCalendar, 'visibleStartDay');
+  calendarDay = localDayKey();
+  state.calendar = { ...clone(DEFAULT_STATE.calendar), visibleStart: defaultCalendarStart(state.tasks), visibleEnd: 1440, visibleStartUserSet: false };
+
+  activeNoteId = state.notes[0]?.id || null;
+
+  for (const key of STORAGE_KEYS) {
+    lastSavedJson[key] = JSON.stringify(state[key]);
   }
-  activeNoteId = state.notes[0].id;
-  lastSavedStateJson = JSON.stringify(state);
-  if (removedPreviousDayTasks) await chrome.storage.local.set({ todoState: state });
+
+  if (removedPreviousDayTasks) await saveSlice('tasks');
+  if (hasPersistedCalendarDay) await saveSlice('calendar');
+
+  if (taskBeingEdited) {
+    const updated = state.tasks.find(t => t.id === taskBeingEdited.id);
+    if (!updated) {
+      taskBeingEdited = null;
+      $('#task-form').hidden = true;
+    } else {
+      taskBeingEdited = updated;
+      syncTaskFormWithTask(updated);
+    }
+  }
+
   renderAll();
   startClockLoops();
 }
-async function saveState(message) {
+
+async function saveSlice(key, message) {
+  if (!state || !key) return;
   saving = true;
-  lastSavedStateJson = JSON.stringify(state);
-  await chrome.storage.local.set({ todoState: state });
+  lastSavedJson[key] = JSON.stringify(state[key]);
+  await chrome.storage.local.set({ [key]: state[key] });
   saving = false;
   if (message) setStatus(message);
 }
-function setStatus(message) { const status = $('#app-status'); if (status) status.textContent = message; }
+
+async function saveSlices(keys, message) {
+  if (!state || !Array.isArray(keys)) return;
+  saving = true;
+  const payload = {};
+  for (const key of keys) {
+    lastSavedJson[key] = JSON.stringify(state[key]);
+    payload[key] = state[key];
+  }
+  await chrome.storage.local.set(payload);
+  saving = false;
+  if (message) setStatus(message);
+}
+
+async function saveState(message) {
+  await saveSlices(STORAGE_KEYS, message);
+}
+
+const saveNotes = msg => saveSlice('notes', msg);
+const saveTasks = msg => saveSlice('tasks', msg);
+const saveSettings = msg => saveSlice('settings', msg);
+const saveStopwatch = msg => saveSlice('stopwatch', msg);
+const saveCountdown = msg => saveSlice('countdown', msg);
+const saveCalendar = msg => saveSlice('calendar', msg);
+
+function getCaretCharacterOffsetWithin(element) {
+  let caretOffset = 0;
+  const sel = window.getSelection();
+  if (sel && sel.rangeCount > 0) {
+    const range = sel.getRangeAt(0);
+    const preCaretRange = range.cloneRange();
+    preCaretRange.selectNodeContents(element);
+    preCaretRange.setEnd(range.endContainer, range.endOffset);
+    caretOffset = preCaretRange.toString().length;
+  }
+  return caretOffset;
+}
+
+function setCaretCharacterOffsetWithin(element, offset) {
+  const createRange = (node, chars, range) => {
+    if (!range) {
+      range = document.createRange();
+      range.selectNode(node);
+      range.setStart(node, 0);
+    }
+    if (chars.count === 0) {
+      range.setEnd(node, chars.count);
+    } else if (node && chars.count > 0) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        if (node.textContent.length < chars.count) {
+          chars.count -= node.textContent.length;
+        } else {
+          range.setEnd(node, chars.count);
+          chars.count = 0;
+        }
+      } else {
+        for (let lp = 0; lp < node.childNodes.length; lp++) {
+          range = createRange(node.childNodes[lp], chars, range);
+          if (chars.count === 0) break;
+        }
+      }
+    }
+    return range;
+  };
+
+  try {
+    const sel = window.getSelection();
+    if (offset >= 0 && element) {
+      const range = createRange(element, { count: offset });
+      if (range) {
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }
+  } catch {
+    // Graceful fallback if selection restoration is not supported
+  }
+}
+let toastTimeout;
+function showToast(message, dotColor) {
+  const toast = document.getElementById('toast');
+  const msgEl = document.getElementById('toastMsg');
+  const dotEl = document.getElementById('toastDot');
+  if (!toast || !msgEl) return;
+  msgEl.textContent = message;
+  if (dotEl) {
+    if (dotColor) {
+      dotEl.style.backgroundColor = dotColor;
+    } else if (/fail|error|cannot|must|invalid|delete/i.test(message)) {
+      dotEl.style.backgroundColor = '#EF4444';
+    } else if (/saved|finish|complete/i.test(message)) {
+      dotEl.style.backgroundColor = '#10B981';
+    } else if (/pause/i.test(message)) {
+      dotEl.style.backgroundColor = '#F59E0B';
+    } else {
+      dotEl.style.backgroundColor = '#60A5FA';
+    }
+  }
+  toast.classList.add('is-visible');
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => {
+    toast.classList.remove('is-visible');
+  }, 2500);
+}
+function setStatus(message) {
+  const status = $('#app-status');
+  if (status) status.textContent = message;
+  if (message) showToast(message);
+}
 function applyTheme(value, animate = true) {
   const current = value === 'light' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', current);
@@ -107,34 +294,42 @@ function renderNotes() {
   $('#new-note').onclick = () => addNote();
   const note = state.notes.find(item => item.id === activeNoteId) || state.notes[0]; activeNoteId = note.id; panel.replaceChildren();
   const heading = document.createElement('div'); heading.className = 'note-heading';
-  const title = document.createElement('input'); title.className = 'note-title'; title.value = note.title; title.setAttribute('aria-label', 'Note title'); title.addEventListener('input', () => { note.title = title.value; renderNotesListOnly(); saveState(); });
-  const add = button('+ Add Text Box', 'primary add-box-button'); add.addEventListener('click', () => { note.blocks.push(newBlock()); saveState(); renderNotes(); }); heading.append(title, add); panel.appendChild(heading);
+  const title = document.createElement('input'); title.className = 'note-title'; title.value = note.title; title.setAttribute('aria-label', 'Note title'); title.addEventListener('input', () => { note.title = title.value; renderNotesListOnly(); saveNotes(); });
+  const add = button('+ Add Text Box', 'primary add-box-button'); add.addEventListener('click', () => { note.blocks.push(newBlock()); saveNotes(); renderNotes(); }); heading.append(title, add); panel.appendChild(heading);
   const blockList = document.createElement('div'); blockList.className = 'note-block-list';
   note.blocks.forEach((block, index) => blockList.appendChild(createBlock(note, block, index, blockList)));
   panel.appendChild(blockList);
 }
 function addNote() {
   const note = { id: crypto.randomUUID(), title: 'New note', blocks: [newBlock()] };
-  state.notes.push(note); activeNoteId = note.id; saveState(); renderNotes();
+  state.notes.push(note); activeNoteId = note.id; saveNotes(); renderNotes();
 }
 function deleteNote(note) {
   if (state.notes.length === 1) return setStatus('At least one note must remain.');
   if (!confirm(`Delete "${note.title || 'Untitled note'}"?`)) return;
   state.notes = state.notes.filter(item => item.id !== note.id);
   if (activeNoteId === note.id) activeNoteId = state.notes[0].id;
-  saveState('Note deleted'); renderNotes();
+  saveNotes('Note deleted'); renderNotes();
 }
 function newBlock() { return { id: crypto.randomUUID(), title: 'Text box', html: '', collapsed: false, width: 100, height: 180, fontFamily: 'Arial, sans-serif', fontSize: 18, customColors: [] }; }
-function renderNotesListOnly() { [...$('#note-list').querySelectorAll('.note-list-item')].forEach((item, index) => { item.textContent = state.notes[index].title || 'Untitled note'; }); }
+function renderNotesListOnly() {
+  const items = $('#note-list').querySelectorAll('.note-list-item');
+  state.notes.forEach((note, index) => {
+    if (items[index]) {
+      items[index].textContent = note.title || 'Untitled note';
+      items[index].classList.toggle('is-active', note.id === activeNoteId);
+    }
+  });
+}
 function createBlock(note, block, index, blockList) {
   const wrapper = document.createElement('div'); wrapper.className = 'editor-wrapper';
   wrapper.dataset.blockId = block.id;
   const drag = button('⠿', 'drag-handle'); drag.title = 'Move text box'; drag.setAttribute('aria-label', 'Move text box');
   const article = document.createElement('article'); article.className = `editor-card${block.collapsed ? ' is-collapsed' : ''}`; article.style.width = `${block.width || 100}%`;
   const toolbar = document.createElement('div'); toolbar.className = 'editor-toolbar';
-  const blockTitle = document.createElement('input'); blockTitle.className = 'block-title'; blockTitle.value = block.title || 'Text box'; blockTitle.setAttribute('aria-label', 'Text box title'); blockTitle.addEventListener('input', () => { block.title = blockTitle.value; saveState(); });
+  const blockTitle = document.createElement('input'); blockTitle.className = 'block-title'; blockTitle.value = block.title || 'Text box'; blockTitle.setAttribute('aria-label', 'Text box title'); blockTitle.addEventListener('input', () => { block.title = blockTitle.value; saveNotes(); });
   const fontFamily = document.createElement('select'); fontFamily.className = 'font-family'; fontFamily.setAttribute('aria-label', 'Font family'); populateFonts(fontFamily, block);
-  fontFamily.addEventListener('change', () => { rememberFont(fontFamily.value); applyCommand('fontName', fontFamily.value); block.fontFamily = fontFamily.value; editor.style.fontFamily = fontFamily.value; saveState(); });
+  fontFamily.addEventListener('change', () => { rememberFont(fontFamily.value); applyCommand('fontName', fontFamily.value); block.fontFamily = fontFamily.value; editor.style.fontFamily = fontFamily.value; saveSlices(['notes', 'settings']); });
   const fontSize = document.createElement('input'); fontSize.className = 'font-size-input'; fontSize.type = 'number'; fontSize.min = '1'; fontSize.max = '200'; fontSize.step = '1'; fontSize.value = block.fontSize || 18; fontSize.setAttribute('aria-label', 'Font size in pixels'); fontSize.title = 'Font size in pixels';
   const decreaseFontSize = button('−', 'format-button font-size-button'); decreaseFontSize.title = 'Decrease font size'; decreaseFontSize.setAttribute('aria-label', 'Decrease font size');
   const increaseFontSize = button('+', 'format-button font-size-button'); increaseFontSize.title = 'Increase font size'; increaseFontSize.setAttribute('aria-label', 'Increase font size');
@@ -144,8 +339,8 @@ function createBlock(note, block, index, blockList) {
   fontSize.addEventListener('change', () => setFontSize(block, fontSize));
   const color = colorPicker(block, 'Text color', 'foreColor');
   const highlight = colorPicker(block, 'Highlight color', 'hiliteColor', state.settings.highlightColor);
-  const collapse = button(block.collapsed ? 'Expand' : 'Collapse', 'icon'); collapse.addEventListener('click', () => { block.collapsed = !block.collapsed; saveState(); renderNotes(); });
-  const remove = button('Delete', 'danger'); remove.addEventListener('click', () => { note.blocks = note.blocks.filter(item => item.id !== block.id); saveState(); renderNotes(); });
+  const collapse = button(block.collapsed ? 'Expand' : 'Collapse', 'icon'); collapse.addEventListener('click', () => { block.collapsed = !block.collapsed; saveNotes(); renderNotes(); });
+  const remove = button('Delete', 'danger'); remove.addEventListener('click', () => { note.blocks = note.blocks.filter(item => item.id !== block.id); saveNotes(); renderNotes(); });
   toolbar.append(blockTitle, formatButton('B', 'Bold', 'bold'), formatButton('I', 'Italic', 'italic'), formatButton('U', 'Underline', 'underline'), formatButton('•', 'Bulleted list', 'insertUnorderedList'), formatButton('1.', 'Numbered list', 'insertOrderedList'), fontFamily, decreaseFontSize, fontSize, increaseFontSize, color, highlight, collapse, remove);
   const editor = document.createElement('div'); editor.className = 'wysiwyg'; editor.contentEditable = 'true'; editor.innerHTML = block.html || ''; editor.dataset.placeholder = 'Start typing...'; editor.style.fontFamily = block.fontFamily || 'Arial, sans-serif'; editor.style.fontSize = `${block.fontSize || 18}px`; editor.style.minHeight = `${block.height || 180}px`;
   prepareEditorImages(editor, block);
@@ -163,11 +358,11 @@ function createBlock(note, block, index, blockList) {
       selectedEditorImage.remove();
       deselectEditorImage();
       block.html = editorHtml(editor);
-      saveState();
+      saveNotes();
     }
   });
-  editor.addEventListener('input', () => { applyTypingShortcut(editor); block.html = editorHtml(editor); block.fontFamily = window.getComputedStyle(editor).fontFamily || block.fontFamily; block.height = editor.scrollHeight; block.customColors = (block.customColors || []).filter(colorValue => block.html.toLowerCase().includes(colorValue.toLowerCase())); saveState(); });
-  editor.addEventListener('blur', () => { block.html = editorHtml(editor); activeEditor = null; saveState(); });
+  editor.addEventListener('input', () => { applyTypingShortcut(editor); block.html = editorHtml(editor); block.fontFamily = window.getComputedStyle(editor).fontFamily || block.fontFamily; block.height = editor.scrollHeight; block.customColors = (block.customColors || []).filter(colorValue => block.html.toLowerCase().includes(colorValue.toLowerCase())); saveNotes(); });
+  editor.addEventListener('blur', () => { block.html = editorHtml(editor); activeEditor = null; saveNotes(); });
   if (block.collapsed) editor.hidden = true; article.append(toolbar, editor); wrapper.append(drag, article); enableBlockDragging(note, block, wrapper, drag, blockList); return wrapper;
 }
 function prepareEditorImages(editor, block) {
@@ -215,13 +410,15 @@ function startImageResize(event, wrapper, position, editor, block) {
   event.preventDefault();
   event.stopPropagation();
   selectEditorImage(wrapper);
+  resizingEditorImage = true;
   const rect = wrapper.getBoundingClientRect();
   resizeData = { startX: event.clientX, startY: event.clientY, width: rect.width, height: rect.height, position, editor, block };
   document.addEventListener('pointermove', resizeImage);
-  document.addEventListener('pointerup', stopImageResize, { once: true });
+  document.addEventListener('pointerup', stopImageResize);
+  document.addEventListener('pointercancel', stopImageResize);
 }
 function resizeImage(event) {
-  if (!resizeData || !selectedEditorImage) return;
+  if (!resizingEditorImage || !resizeData || !selectedEditorImage) return;
   const { startX, startY, width: startWidth, height: startHeight, position, editor, block } = resizeData;
   const dx = event.clientX - startX;
   const dy = event.clientY - startY;
@@ -229,12 +426,17 @@ function resizeImage(event) {
   const height = Math.max(50, startHeight + (position.includes('s') ? dy : position.includes('n') ? -dy : 0));
   selectedEditorImage.style.width = `${width}px`;
   selectedEditorImage.style.height = `${height}px`;
-  block.html = editorHtml(editor);
-  saveState();
 }
 function stopImageResize() {
+  if (resizeData) {
+    resizeData.block.html = editorHtml(resizeData.editor);
+    saveNotes();
+  }
+  resizingEditorImage = false;
   resizeData = null;
   document.removeEventListener('pointermove', resizeImage);
+  document.removeEventListener('pointerup', stopImageResize);
+  document.removeEventListener('pointercancel', stopImageResize);
 }
 function editorHtml(editor) {
   const copy = editor.cloneNode(true);
@@ -272,7 +474,7 @@ function handleEditorPaste(event, editor, block) {
       selection.addRange(range);
     }
     block.html = editorHtml(editor);
-    saveState();
+    saveNotes();
   };
   if (!file) {
     insertImage(imageSource);
@@ -309,7 +511,7 @@ function enableBlockDragging(note, block, wrapper, drag, blockList) {
       placeholder.remove();
       const order = [...blockList.querySelectorAll('.editor-wrapper')].map(item => item.dataset.blockId);
       const reordered = order.map(id => note.blocks.find(item => item.id === id)).filter(Boolean);
-      if (reordered.length === note.blocks.length) { note.blocks = reordered; saveState(); renderNotes(); }
+      if (reordered.length === note.blocks.length) { note.blocks = reordered; saveNotes(); renderNotes(); }
     };
     document.addEventListener('pointermove', move);
     document.addEventListener('pointerup', stop, { once: true });
@@ -327,7 +529,7 @@ function setFontSize(block, input) {
   const value = Math.max(1, Math.min(200, Number.parseInt(input.value, 10) || block.fontSize || 18));
   input.value = value;
   block.fontSize = value;
-  if (!activeEditor) return saveState();
+  if (!activeEditor) return saveNotes();
   activeEditor.focus();
   document.execCommand('fontSize', false, '7');
   activeEditor.querySelectorAll('font[size="7"]').forEach(item => { item.removeAttribute('size'); item.style.fontSize = `${value}px`; });
@@ -339,7 +541,7 @@ function changeFontSize(block, input, delta) {
   setFontSize(block, input);
 }
 function formatButton(label, title, command) { const item = button(label, 'format-button'); item.title = title; item.setAttribute('aria-label', title); item.addEventListener('mousedown', event => event.preventDefault()); item.addEventListener('click', () => applyCommand(command)); return item; }
-function colorPicker(block, title, command, fallback = null) { const input = document.createElement('input'); input.type = 'color'; input.title = title; input.setAttribute('aria-label', title); input.value = fallback || block.color || state.settings.textColor; input.addEventListener('input', () => { block.color = input.value; block.customColors = [...new Set([...(block.customColors || []), input.value])]; applyCommand(command, input.value); saveState(); }); return input; }
+function colorPicker(block, title, command, fallback = null) { const input = document.createElement('input'); input.type = 'color'; input.title = title; input.setAttribute('aria-label', title); input.value = fallback || block.color || state.settings.textColor; input.addEventListener('input', () => { block.color = input.value; block.customColors = [...new Set([...(block.customColors || []), input.value])]; applyCommand(command, input.value); saveNotes(); }); return input; }
 function syncToolbar(editor, select, sizeInput) {
   const family = document.queryCommandValue('fontName');
   const option = [...select.options].find(item => item.value.toLowerCase().replaceAll('"', '') === family.toLowerCase().replaceAll('"', ''));
@@ -371,9 +573,12 @@ function taskElapsedEnd(task) {
   return taskDisplayEnd(task);
 }
 function taskElapsedWindow(task) {
-  if (task.status === 'scheduled') return null;
   const start = new Date(task.start).getTime();
-  const end = taskElapsedEnd(task);
+  const current = now();
+  if (!Number.isFinite(start) || start > current || task.delayed) return null;
+  const end = ['active', 'paused', 'extended', 'running', 'in-progress', 'scheduled'].includes(task.status)
+    ? current
+    : Math.min(current, new Date(task.actualEnd || task.end).getTime());
   return Number.isFinite(start) && Number.isFinite(end) && end > start ? { start, end } : null;
 }
 function taskBreaks(task, end) {
@@ -386,7 +591,14 @@ function taskBreaks(task, end) {
   return breaks;
 }
 function renderTasks() {
-  const taskCountBeforeCleanup = state.tasks.length; state.tasks = state.tasks.filter(task => !isFromPreviousDay(task)); if (state.tasks.length !== taskCountBeforeCleanup) saveState('Previous-day tasks removed');
+  const taskCountBeforeCleanup = state.tasks.length; state.tasks = state.tasks.filter(task => !isFromPreviousDay(task)); if (state.tasks.length !== taskCountBeforeCleanup) saveTasks('Previous-day tasks removed');
+  const todayKey = localDayKey();
+  if (calendarDay !== todayKey) {
+    state.calendar.visibleStart = defaultCalendarStart(state.tasks);
+    state.calendar.visibleStartUserSet = false;
+    calendarDay = todayKey;
+    saveCalendar('Calendar start updated');
+  }
   syncExtendedTasks(); const calendar = $('#day-calendar'); const existingBody = calendar.querySelector('.calendar-day-body'); if (existingBody) calendarScrollTop = existingBody.scrollTop; calendar.replaceChildren(); renderTaskColorChart(); const day = dayBounds(); const configuredStart = state.calendar.visibleStartUserSet ? state.calendar.visibleStart : defaultCalendarStart(state.tasks); const startMinutes = Math.max(0, Math.min(1439, configuredStart)); const endMinutes = 1440; const range = endMinutes - startMinutes;
   const header = document.createElement('div'); header.className = 'calendar-day-header';
   const dayLabel = document.createElement('strong'); dayLabel.textContent = day.start.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
@@ -413,7 +625,7 @@ function renderTaskColorChart() {
     if (!window) return;
     const { start, end } = window; const duration = end - start;
     const color = /^#[0-9a-f]{6}$/i.test(task.color || '') ? task.color.toLowerCase() : '#2f6fae';
-    if (!categoryLabels.has(color)) categoryLabels.set(color, STANDARD_COLORS.find(([, value]) => value.toLowerCase() === color)?.[0] || task.title?.trim() || 'Miscellaneous');
+    if (!categoryLabels.has(color)) categoryLabels.set(color, STANDARD_COLORS.find(([, value]) => value.toLowerCase() === color)?.[0] || LEGACY_COLORS.get(color) || task.title?.trim() || 'Miscellaneous');
     const breaks = taskBreaks(task, end);
     const pausedDuration = breaks.reduce((total, item) => total + Math.max(0, Math.min(end, item.end) - Math.max(start, item.start)), 0);
     const workedDuration = Math.max(0, duration - pausedDuration);
@@ -503,7 +715,7 @@ function createVisibleTimeEditor(startMinutes) {
     state.calendar.visibleStart = nextStart;
     state.calendar.visibleEnd = 1440;
     state.calendar.visibleStartUserSet = true;
-    saveState();
+    saveCalendar();
     renderTasks();
   };
   [start.input, start.period].forEach(control => {
@@ -554,7 +766,7 @@ function renderTaskEvent(events, task, dayStart, visibleStart, visibleEnd) {
   if (cursor < end) segments.push({ start: cursor, end, type: 'work' });
   segments.forEach(segment => { const part = document.createElement('div'); part.className = `calendar-event-segment ${segment.type}`; part.style.top = `${(segment.start - start) / 60000 * CALENDAR_PIXELS_PER_MINUTE}px`; part.style.height = `${(segment.end - segment.start) / 60000 * CALENDAR_PIXELS_PER_MINUTE}px`; event.appendChild(part); });
   const label = document.createElement('div'); label.className = 'calendar-event-label'; label.innerHTML = `<strong>${escapeHtml(task.title)}</strong><span>${formatClock(new Date(start))} - ${formatClock(new Date(end))}</span>`; event.appendChild(label);
-  event.title = task.description || task.title; event.tabIndex = 0; event.addEventListener('click', () => editTask(task)); event.addEventListener('keydown', keyboardEvent => { if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') { keyboardEvent.preventDefault(); editTask(task); } }); events.appendChild(event);
+  event.title = task.title; event.tabIndex = 0; event.addEventListener('click', () => editTask(task)); event.addEventListener('keydown', keyboardEvent => { if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') { keyboardEvent.preventDefault(); editTask(task); } }); events.appendChild(event);
 }
 function syncExtendedTasks() {
   const current = now(); let changed = false;
@@ -567,12 +779,245 @@ function syncExtendedTasks() {
       if (new Date(task.start).getTime() !== desiredStart) { task.originalStart = task.originalStart || task.start; task.originalEnd = task.originalEnd || task.end; task.start = new Date(desiredStart).toISOString(); task.end = new Date(desiredStart + duration).toISOString(); changed = true; }
     });
   });
-  if (changed) saveState();
+  if (changed) saveTasks();
+}
+function setTaskAmPm(type, period) {
+  const form = $('#task-form');
+  if (!form) return;
+  if (type === 'start') {
+    form.elements.startPeriod.value = period;
+    $('#start-am-btn')?.classList.toggle('is-active', period === 'AM');
+    $('#start-pm-btn')?.classList.toggle('is-active', period === 'PM');
+  } else {
+    form.elements.endPeriod.value = period;
+    $('#end-am-btn')?.classList.toggle('is-active', period === 'AM');
+    $('#end-pm-btn')?.classList.toggle('is-active', period === 'PM');
+  }
+  updateTaskEditorSummary(taskBeingEdited ? new Date(taskBeingEdited.start) : new Date());
 }
 function editTask(task) {
-  taskBeingEdited = task; const form = $('#task-form'); form.hidden = false; form.elements.title.value = task.title || ''; form.elements.description.value = task.description || ''; form.elements.color.value = task.color || '#2f6fae'; syncTaskColorPicker(); setTimeFields(form, 'start', new Date(task.start)); setTimeFields(form, 'end', new Date(task.end));
-  $('#task-meta').textContent = task.actualEnd ? `Scheduled: ${formatDate(new Date(task.end))} · Actual end: ${formatDate(new Date(task.actualEnd))}` : `Scheduled: ${formatDate(new Date(task.start))} - ${formatDate(new Date(task.end))}`;
-  const actions = form.querySelector('.form-actions'); actions.querySelectorAll('.task-action').forEach(item => item.remove()); if (task.status !== 'completed') { const end = button('Finish Task', 'success task-action'); end.addEventListener('click', () => finishTask(task)); actions.prepend(end); if (['active', 'extended', 'paused'].includes(task.status)) { const pause = button(task.status === 'paused' ? 'Resume Task' : 'Pause Task', 'task-action'); pause.addEventListener('click', () => toggleTaskPause(task)); actions.prepend(pause); } } const remove = button('🗑️', 'note-delete-button task-action'); remove.title = 'Delete task'; remove.setAttribute('aria-label', `Delete ${task.title || 'untitled task'}`); remove.addEventListener('click', () => deleteTask(task)); actions.prepend(remove); document.querySelector('[data-view="calendar-view"]').click(); window.scrollTo({ top: 0, behavior: 'smooth' });
+  taskBeingEdited = task;
+  const form = $('#task-form');
+  form.hidden = false;
+  form.elements.title.value = task.title || '';
+
+  form.elements.color.value = task.color || '#A855F7';
+  syncTaskColorPicker();
+  setTimeFields(form, 'start', new Date(task.start));
+  setTimeFields(form, 'end', new Date(task.end));
+  $('#task-form-heading').textContent = 'Edit Task';
+  $('#delete-task').style.display = 'inline-flex';
+  updateTaskEditorSummary(new Date(task.start));
+  renderBreakEditor(task);
+  $('#task-meta').textContent = task.actualEnd
+    ? `Scheduled: ${formatDate(new Date(task.end))} · Actual end: ${formatDate(new Date(task.actualEnd))}`
+    : `Scheduled: ${formatDate(new Date(task.start))} - ${formatDate(new Date(task.end))}`;
+  const dynamicActions = $('#task-dynamic-actions');
+  dynamicActions.replaceChildren();
+  if (task.status !== 'completed') {
+    if (['active', 'extended', 'paused'].includes(task.status)) {
+      const pauseBtn = button(task.status === 'paused' ? 'Resume Task' : 'Pause Task', 'task-pause-btn');
+      pauseBtn.addEventListener('click', () => toggleTaskPause(task));
+      dynamicActions.appendChild(pauseBtn);
+    }
+    const finishBtn = button('Finish Task', 'task-finish-btn');
+    finishBtn.addEventListener('click', () => finishTask(task));
+    dynamicActions.appendChild(finishBtn);
+  }
+  document.querySelector('[data-view="calendar-view"]').click();
+  scrollTaskFormIntoView(form);
+}
+function scrollTaskFormIntoView(form) {
+  requestAnimationFrame(() => form.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' }));
+}
+function renderBreakEditor(task) {
+  const editor = $('#task-break-editor');
+  const list = $('#task-break-list');
+  list.replaceChildren();
+  editor.hidden = false;
+  const taskDate = new Date(task.start);
+  (task.breaks || []).forEach(breakInterval => appendBreakRow(list, breakInterval, taskDate));
+  updateBreakCount();
+  $('#add-task-break').onclick = () => {
+    appendBreakRow(list, null, taskDate);
+    showToast('New break added');
+  };
+}
+function setupNewTaskBreakEditor(taskDate) {
+  const editor = $('#task-break-editor');
+  const list = $('#task-break-list');
+  editor.hidden = false;
+  list.replaceChildren();
+  updateBreakCount();
+  $('#add-task-break').onclick = () => {
+    appendBreakRow(list, null, taskDate);
+    showToast('New break added');
+  };
+}
+function updateBreakCount() {
+  const list = $('#task-break-list');
+  const rows = list.querySelectorAll('.task-break-row');
+  const count = rows.length;
+  $('#task-break-count').textContent = `${count} ${count === 1 ? 'break' : 'breaks'}`;
+  let empty = list.querySelector('.breaks-empty-state');
+  if (count === 0) {
+    if (!empty) {
+      empty = document.createElement('div');
+      empty.className = 'breaks-empty-state';
+      empty.textContent = 'No breaks added. Click "+ Add Break" above to insert a rest interval.';
+      list.appendChild(empty);
+    }
+  } else if (empty) {
+    empty.remove();
+  }
+  rows.forEach((row, index) => {
+    const title = row.querySelector('.break-title');
+    if (title) title.textContent = `Break ${index + 1}`;
+  });
+}
+function appendBreakRow(list, breakInterval, taskDate) {
+  list.querySelector('.breaks-empty-state')?.remove();
+  const row = document.createElement('div');
+  row.className = 'task-break-row';
+
+  const rowHeader = document.createElement('div');
+  rowHeader.className = 'break-row-header';
+  const dot = document.createElement('span');
+  dot.className = 'break-dot';
+  const title = document.createElement('span');
+  title.className = 'break-title';
+  title.textContent = `Break ${list.querySelectorAll('.task-break-row').length + 1}`;
+  rowHeader.append(dot, title);
+
+  const inputs = document.createElement('div');
+  inputs.className = 'break-time-inputs';
+
+  const startBox = document.createElement('div');
+  startBox.className = 'custom-input break-time-box';
+  const startInput = document.createElement('input');
+  startInput.type = 'text';
+  startInput.inputMode = 'numeric';
+  startInput.className = 'break-time-input';
+  startInput.dataset.breakField = 'start';
+  const startAmPm = document.createElement('button');
+  startAmPm.type = 'button';
+  startAmPm.className = 'break-ampm-btn';
+  startAmPm.dataset.breakField = 'startPeriod';
+  startAmPm.textContent = 'PM';
+  startAmPm.addEventListener('click', () => {
+    startAmPm.textContent = startAmPm.textContent === 'AM' ? 'PM' : 'AM';
+    updateRowDuration();
+  });
+  startBox.append(startInput, startAmPm);
+
+  const toSpan = document.createElement('span');
+  toSpan.className = 'break-to-text';
+  toSpan.textContent = 'to';
+
+  const endBox = document.createElement('div');
+  endBox.className = 'custom-input break-time-box';
+  const endInput = document.createElement('input');
+  endInput.type = 'text';
+  endInput.inputMode = 'numeric';
+  endInput.className = 'break-time-input';
+  endInput.dataset.breakField = 'end';
+  const endAmPm = document.createElement('button');
+  endAmPm.type = 'button';
+  endAmPm.className = 'break-ampm-btn';
+  endAmPm.dataset.breakField = 'endPeriod';
+  endAmPm.textContent = 'PM';
+  endAmPm.addEventListener('click', () => {
+    endAmPm.textContent = endAmPm.textContent === 'AM' ? 'PM' : 'AM';
+    updateRowDuration();
+  });
+  endBox.append(endInput, endAmPm);
+
+  const durationBadge = document.createElement('span');
+  durationBadge.className = 'break-duration-pill';
+  durationBadge.textContent = '15m';
+
+  function updateRowDuration() {
+    const s = parseTimeOnDate(taskDate, startInput.value, startAmPm.textContent);
+    const e = parseTimeOnDate(taskDate, endInput.value, endAmPm.textContent);
+    if (s && e && e > s) {
+      durationBadge.textContent = formatElapsedDuration(e - s);
+    } else {
+      durationBadge.textContent = '--';
+    }
+  }
+
+  startInput.addEventListener('input', updateRowDuration);
+  endInput.addEventListener('input', updateRowDuration);
+
+  inputs.append(startBox, toSpan, endBox, durationBadge);
+
+  const removeBtn = document.createElement('button');
+  removeBtn.type = 'button';
+  removeBtn.className = 'task-break-remove';
+  removeBtn.title = 'Remove break';
+  removeBtn.setAttribute('aria-label', 'Remove break');
+  removeBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>';
+  removeBtn.addEventListener('click', () => {
+    row.remove();
+    updateBreakCount();
+    showToast('Break removed');
+  });
+
+  if (breakInterval) {
+    setBreakField(startInput, startAmPm, new Date(breakInterval.start));
+    setBreakField(endInput, endAmPm, new Date(breakInterval.end));
+    updateRowDuration();
+  } else {
+    updateRowDuration();
+  }
+
+  row.append(rowHeader, inputs, removeBtn);
+  list.appendChild(row);
+  updateBreakCount();
+}
+function setBreakField(input, amPmBtn, date) {
+  const value = localInputValue(date);
+  const [hourText, minute] = value.slice(11).split(':');
+  const hour = Number(hourText);
+  input.value = `${hour % 12 || 12}:${minute}`;
+  amPmBtn.textContent = hour >= 12 ? 'PM' : 'AM';
+}
+function updateTaskEditorSummary(taskDate = new Date()) {
+  const form = $('#task-form');
+  const start = parseTimeOnDate(taskDate, form.elements.startTime.value, form.elements.startPeriod.value);
+  const endInput = form.elements.endTime.value.trim();
+  const end = endInput ? parseTimeOnDate(taskDate, endInput, form.elements.endPeriod.value) : null;
+  if (!start || !end || end <= start) {
+    $('#schedule-summary-text').textContent = start ? `Today, ${formatClock(start)}` : 'Today';
+    $('#schedule-duration').textContent = '--';
+    return;
+  }
+  $('#schedule-summary-text').textContent = `Today, ${formatClock(start)} – ${formatClock(end)}`;
+  $('#schedule-duration').textContent = formatElapsedDuration(end.getTime() - start.getTime());
+}
+function readBreaks(form, taskDate, taskStart, taskEnd) {
+  const rows = [...form.querySelectorAll('.task-break-row')];
+  const intervals = [];
+  for (const row of rows) {
+    const startVal = row.querySelector('[data-break-field="start"]')?.value || '';
+    const startPeriod = row.querySelector('[data-break-field="startPeriod"]')?.textContent || 'PM';
+    const endVal = row.querySelector('[data-break-field="end"]')?.value || '';
+    const endPeriod = row.querySelector('[data-break-field="endPeriod"]')?.textContent || 'PM';
+    const start = parseTimeOnDate(taskDate, startVal, startPeriod);
+    const end = parseTimeOnDate(taskDate, endVal, endPeriod);
+    if (!start || !end || end <= start) return { error: 'Break end time must be after its start time.' };
+    if (start < taskStart || end > taskEnd) return { error: 'Breaks must stay within the scheduled task time.' };
+    intervals.push({ start: start.getTime(), end: end.getTime() });
+  }
+  intervals.sort((first, second) => first.start - second.start);
+  if (intervals.some((interval, index) => index > 0 && interval.start < intervals[index - 1].end)) {
+    return { error: 'Breaks cannot overlap.' };
+  }
+  return { intervals: intervals.map(interval => ({ start: new Date(interval.start).toISOString(), end: new Date(interval.end).toISOString() })) };
+}
+function breakWindowEnd(task, scheduledEnd) {
+  if (task.status !== 'completed' && now() > scheduledEnd.getTime()) return new Date();
+  return scheduledEnd;
 }
 function toggleTaskPause(task) {
   const timestamp = new Date().toISOString();
@@ -580,11 +1025,11 @@ function toggleTaskPause(task) {
     if (task.pausedAt) task.breaks = [...(task.breaks || []), { start: task.pausedAt, end: timestamp }];
     task.pausedAt = null;
     task.status = new Date(task.end).getTime() <= now() ? 'extended' : 'active';
-    saveState('Task resumed');
+    saveTasks('Task resumed');
   } else if (['active', 'extended'].includes(task.status)) {
     task.status = 'paused';
     task.pausedAt = timestamp;
-    saveState('Task paused');
+    saveTasks('Task Paused');
   }
   renderTasks();
   editTask(task);
@@ -595,25 +1040,109 @@ function finishTask(task) {
     task.breaks = [...(task.breaks || []), { start: task.pausedAt, end: endedAt }];
     task.pausedAt = null;
   }
-  task.status = 'completed'; task.end = endedAt; task.completedAt = endedAt; task.actualEnd = endedAt; saveState('Task ended'); renderTasks(); editTask(task);
+  task.status = 'completed';
+  task.end = endedAt;
+  task.completedAt = endedAt;
+  task.actualEnd = endedAt;
+  saveTasks('Task Finished');
+  renderTasks();
+  editTask(task);
 }
-function deleteTask(task) { if (!confirm(`Delete "${task.title}"?`)) return; state.tasks = state.tasks.filter(item => item.id !== task.id); taskBeingEdited = null; $('#task-form').hidden = true; saveState('Task deleted'); renderTasks(); }
-function syncTaskColorPicker() { const picker = $('.task-color-picker'); const input = document.querySelector('#task-form [name="color"]'); if (!picker || !input) return; picker.querySelectorAll('.standard-color').forEach(button => button.classList.toggle('is-selected', button.dataset.color.toLowerCase() === input.value.toLowerCase())); }
-function setupTaskColorPicker() { const picker = $('.task-color-picker'); const input = document.querySelector('#task-form [name="color"]'); if (!picker || !input) return; const colors = picker.querySelector('.standard-colors'); STANDARD_COLORS.forEach(([name, value]) => { const swatch = button('', 'standard-color'); swatch.dataset.color = value; swatch.title = name; swatch.setAttribute('aria-label', name); swatch.style.backgroundColor = value; swatch.addEventListener('click', () => { input.value = value; syncTaskColorPicker(); }); colors.appendChild(swatch); }); picker.querySelector('.custom-color-button').addEventListener('click', () => input.click()); input.addEventListener('input', syncTaskColorPicker); syncTaskColorPicker(); }
+function deleteTask(task) {
+  if (!confirm(`Delete "${task.title}"?`)) return;
+  state.tasks = state.tasks.filter(item => item.id !== task.id);
+  taskBeingEdited = null;
+  $('#task-form').hidden = true;
+  saveTasks('Task Deleted');
+  renderTasks();
+}
+function syncTaskColorPicker() {
+  const input = document.querySelector('#task-form [name="color"]');
+  if (!input) return;
+  const currentHex = (input.value || '#A855F7').toLowerCase();
+  const matched = STANDARD_COLORS.find(([, hex]) => hex.toLowerCase() === currentHex);
+  const swatches = document.querySelectorAll('#task-form .swatch-btn');
+  swatches.forEach(btn => {
+    const isMatch = (btn.dataset.color || '').toLowerCase() === currentHex;
+    btn.classList.toggle('is-active', isMatch);
+    btn.classList.toggle('active', isMatch);
+  });
+  const labelText = document.getElementById('selected-task-color');
+  const customLabel = document.getElementById('custom-color-label');
+  const customPreview = document.getElementById('custom-color-preview');
+  const headerBadge = document.getElementById('task-header-color');
+
+  if (matched) {
+    if (labelText) labelText.textContent = `${matched[0]} (${matched[1]})`;
+    if (customLabel) customLabel.classList.remove('is-active');
+    if (customPreview) customPreview.style.background = 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)';
+  } else {
+    if (labelText) labelText.textContent = `Custom (${input.value.toUpperCase()})`;
+    if (customLabel) customLabel.classList.add('is-active');
+    if (customPreview) customPreview.style.background = input.value;
+  }
+  if (headerBadge) {
+    headerBadge.style.backgroundColor = input.value;
+    headerBadge.style.boxShadow = `0 0 12px ${input.value}80`;
+  }
+}
+function setupTaskColorPicker() {
+  const container = document.getElementById('standard-colors');
+  const input = document.querySelector('#task-form [name="color"]');
+  if (!container || !input) return;
+  container.replaceChildren();
+  STANDARD_COLORS.forEach(([name, hex]) => {
+    const swatch = document.createElement('button');
+    swatch.type = 'button';
+    swatch.className = 'swatch-btn';
+    swatch.dataset.color = hex;
+    swatch.title = name;
+    swatch.setAttribute('aria-label', name);
+    swatch.style.backgroundColor = hex;
+    swatch.style.setProperty('--swatch-color', hex);
+    swatch.addEventListener('click', () => {
+      input.value = hex;
+      syncTaskColorPicker();
+    });
+    container.appendChild(swatch);
+  });
+  input.addEventListener('input', syncTaskColorPicker);
+  input.addEventListener('change', syncTaskColorPicker);
+  syncTaskColorPicker();
+}
 function formatMinutes(minutes) { const dayOffset = Math.floor(minutes / 1440); const value = minutes % 1440; const hour = Math.floor(value / 60); const minute = value % 60; const suffix = hour >= 12 ? 'PM' : 'AM'; return `${hour % 12 || 12}:${String(minute).padStart(2, '0')} ${suffix}${dayOffset ? ` (+${dayOffset}d)` : ''}`; }
 function formatDate(date) { return date.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }); }
 function formatClock(date) { return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
 function isValidDate(value) { const date = value instanceof Date ? value : new Date(value); return !Number.isNaN(date.getTime()); }
 function localInputValue(date) { if (!isValidDate(date)) return ''; const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 16); }
-function setTimeFields(form, prefix, date) { const value = localInputValue(date); const [hourText, minute] = value.slice(11).split(':'); const hour = Number(hourText); form.elements[`${prefix}Time`].value = `${hour % 12 || 12}:${minute}`; form.elements[`${prefix}Period`].value = hour >= 12 ? 'PM' : 'AM'; }
+function setTimeFields(form, prefix, date) {
+  const value = localInputValue(date);
+  if (!value) return;
+  const [hourText, minute] = value.slice(11).split(':');
+  const hour = Number(hourText);
+  const period = hour >= 12 ? 'PM' : 'AM';
+  form.elements[`${prefix}Time`].value = `${hour % 12 || 12}:${minute}`;
+  form.elements[`${prefix}Period`].value = period;
+  $(`#${prefix}-am-btn`)?.classList.toggle('is-active', period === 'AM');
+  $(`#${prefix}-pm-btn`)?.classList.toggle('is-active', period === 'PM');
+}
 function parseTimeOnDate(date, timeValue, period) { const match = String(timeValue).trim().match(/^(\d{1,2}):([0-5]\d)$/); if (!match || Number(match[1]) < 1 || Number(match[1]) > 12) return null; const result = new Date(date); result.setHours((Number(match[1]) % 12) + (period === 'PM' ? 12 : 0), Number(match[2]), 0, 0); return isValidDate(result) ? result : null; }
 function overlaps(start, end, excludeId = null) { return state.tasks.some(task => task.id !== excludeId && task.status !== 'completed' && new Date(task.start) < end && new Date(task.end) > start); }
 
-function renderLaps() { $('#lap-list').replaceChildren(...state.stopwatch.laps.map((lap, index) => { const item = document.createElement('label'); item.className = 'lap-row'; item.innerHTML = `<span>Lap ${index + 1} · ${formatDuration(lap.elapsed)}</span>`; const input = document.createElement('input'); input.placeholder = 'Description'; input.value = lap.description || ''; input.addEventListener('input', () => { lap.description = input.value; saveState(); }); item.appendChild(input); return item; })); }
+function renderLaps() { $('#lap-list').replaceChildren(...state.stopwatch.laps.map((lap, index) => { const item = document.createElement('label'); item.className = 'lap-row'; item.innerHTML = `<span>Lap ${index + 1} · ${formatDuration(lap.elapsed)}</span>`; const input = document.createElement('input'); input.placeholder = 'Description'; input.value = lap.description || ''; input.addEventListener('input', () => { lap.description = input.value; saveStopwatch(); }); item.appendChild(input); return item; })); }
 function formatDuration(milliseconds) { const seconds = Math.max(0, Math.floor(milliseconds / 1000)); return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60].map(value => String(value).padStart(2, '0')).join(':'); }
 function updateStopwatch() { const elapsed = state.stopwatch.elapsed + (state.stopwatch.startedAt ? now() - state.stopwatch.startedAt : 0); $('#stopwatch-display').textContent = formatDuration(elapsed); }
 function updateCountdown() { const remaining = state.countdown.endsAt ? Math.max(0, state.countdown.endsAt - now()) : state.countdown.remaining; $('#countdown-display').textContent = formatDuration(remaining); }
-function startClockLoops() { clearInterval(stopwatchInterval); clearInterval(countdownInterval); clearInterval(calendarInterval); stopwatchInterval = setInterval(updateStopwatch, 1000); countdownInterval = setInterval(updateCountdown, 1000); calendarInterval = setInterval(renderTasks, 30000); }
+function startClockLoops() {
+  clearInterval(stopwatchInterval);
+  clearInterval(countdownInterval);
+  clearInterval(calendarInterval);
+  clearInterval(chartInterval);
+  stopwatchInterval = setInterval(updateStopwatch, 1000);
+  countdownInterval = setInterval(updateCountdown, 1000);
+  chartInterval = setInterval(renderTaskColorChart, 1000);
+  calendarInterval = setInterval(renderTasks, 30000);
+}
 
 function wireEvents() {
   setupTaskColorPicker();
@@ -621,13 +1150,13 @@ function wireEvents() {
     const nextTheme = state.settings.theme === 'light' ? 'dark' : 'light';
     state.settings.theme = nextTheme;
     applyTheme(nextTheme);
-    saveState();
+    saveSettings();
   });
   $('#theme-select')?.addEventListener('change', event => {
     const nextTheme = event.target.value === 'light' ? 'light' : 'dark';
     state.settings.theme = nextTheme;
     applyTheme(nextTheme);
-    saveState();
+    saveSettings();
   });
   const tabs = document.querySelector('.tabs');
   const tabIndicator = document.querySelector('.tab-indicator');
@@ -643,20 +1172,127 @@ function wireEvents() {
   }));
   updateTabIndicator(tabs?.querySelector('.tab.is-active'));
   window.addEventListener('resize', () => updateTabIndicator(tabs?.querySelector('.tab.is-active')));
-  $('#new-task').addEventListener('click', () => { taskBeingEdited = null; const form = $('#task-form'); form.reset(); syncTaskColorPicker(); form.hidden = false; $('#task-meta').textContent = ''; const start = new Date(); setTimeFields(form, 'start', start); form.elements.endTime.value = ''; const currentPeriod = start.getHours() >= 12 ? 'PM' : 'AM'; form.elements.startPeriod.value = currentPeriod; form.elements.endPeriod.value = currentPeriod; form.querySelector('.form-actions').querySelectorAll('.task-action').forEach(item => item.remove()); window.scrollTo({ top: 0, behavior: 'smooth' }); });
-  $('#cancel-task').addEventListener('click', () => { taskBeingEdited = null; $('#task-form').hidden = true; });
-  $('#task-form').addEventListener('submit', event => {
-    event.preventDefault(); const form = event.currentTarget; const taskDate = taskBeingEdited ? new Date(taskBeingEdited.start) : new Date(); const enteredStart = parseTimeOnDate(taskDate, form.elements.startTime.value, form.elements.startPeriod.value); const endInput = form.elements.endTime.value.trim(); const end = endInput ? parseTimeOnDate(taskDate, endInput, form.elements.endPeriod.value) : enteredStart ? new Date(enteredStart.getTime() + 60 * 60000) : null; const current = new Date(); const startsNow = !taskBeingEdited && enteredStart && enteredStart.getHours() === current.getHours() && enteredStart.getMinutes() === current.getMinutes(); const start = startsNow ? current : enteredStart;
-    if (!start || !end) return setStatus('Enter valid start and end time values.'); if (!sameLocalDay(start, end)) return setStatus('Tasks must start and end on the same day.'); if (end <= start) return setStatus('End time must be after the start time.'); if (end.getTime() - start.getTime() >= 86400000) return setStatus('Tasks cannot be longer than one day.'); if (overlaps(start, end, taskBeingEdited?.id)) return setStatus('Tasks cannot overlap.');
-    const values = { title: form.elements.title.value.trim(), description: form.elements.description.value.trim(), color: form.elements.color.value, start: start.toISOString(), end: end.toISOString() }; if (!values.title) return setStatus('Enter a task title.');
-    if (taskBeingEdited) Object.assign(taskBeingEdited, values); else state.tasks.push({ id: crypto.randomUUID(), ...values, status: startsNow ? 'active' : 'scheduled', completedAt: null, breaks: [], pausedAt: null });
-    saveState('Task saved'); taskBeingEdited = null; form.reset(); form.hidden = true; renderTasks();
+  $('#start-am-btn')?.addEventListener('click', () => setTaskAmPm('start', 'AM'));
+  $('#start-pm-btn')?.addEventListener('click', () => setTaskAmPm('start', 'PM'));
+  $('#end-am-btn')?.addEventListener('click', () => setTaskAmPm('end', 'AM'));
+  $('#end-pm-btn')?.addEventListener('click', () => setTaskAmPm('end', 'PM'));
+
+  $('#new-task').addEventListener('click', () => {
+    taskBeingEdited = null;
+    const form = $('#task-form');
+    form.reset();
+    form.elements.color.value = '#A855F7';
+    syncTaskColorPicker();
+    form.hidden = false;
+    $('#task-meta').textContent = '';
+    const start = new Date();
+    setTimeFields(form, 'start', start);
+    form.elements.endTime.value = '';
+    const currentPeriod = start.getHours() >= 12 ? 'PM' : 'AM';
+    form.elements.startPeriod.value = currentPeriod;
+    form.elements.endPeriod.value = currentPeriod;
+    $('#start-am-btn')?.classList.toggle('is-active', currentPeriod === 'AM');
+    $('#start-pm-btn')?.classList.toggle('is-active', currentPeriod === 'PM');
+    $('#end-am-btn')?.classList.toggle('is-active', currentPeriod === 'AM');
+    $('#end-pm-btn')?.classList.toggle('is-active', currentPeriod === 'PM');
+    setupNewTaskBreakEditor(start);
+    $('#task-dynamic-actions').replaceChildren();
+    $('#task-form-heading').textContent = 'New Task';
+    $('#delete-task').style.display = 'none';
+    updateTaskEditorSummary(start);
+    scrollTaskFormIntoView(form);
   });
-  $('#stopwatch-toggle').addEventListener('click', () => { if (state.stopwatch.startedAt) { state.stopwatch.elapsed += now() - state.stopwatch.startedAt; state.stopwatch.startedAt = null; $('#stopwatch-toggle').textContent = 'Resume'; } else { state.stopwatch.startedAt = now(); $('#stopwatch-toggle').textContent = 'Pause'; } saveState(); });
-  $('#stopwatch-reset').addEventListener('click', () => { state.stopwatch = { startedAt: null, elapsed: 0, laps: [] }; $('#stopwatch-toggle').textContent = 'Start'; saveState(); renderLaps(); updateStopwatch(); });
-  $('#lap-button').addEventListener('click', () => { const elapsed = state.stopwatch.elapsed + (state.stopwatch.startedAt ? now() - state.stopwatch.startedAt : 0); state.stopwatch.laps.push({ elapsed, description: '' }); saveState(); renderLaps(); });
-  $('#countdown-start').addEventListener('click', () => { if (state.countdown.endsAt) return; const hours = Number($('#countdown-hours').value || 0); const minutes = Number($('#countdown-minutes').value || 0); const seconds = Number($('#countdown-seconds').value || 0); const duration = (hours * 3600 + minutes * 60 + seconds) * 1000; if (duration <= 0) return setStatus('Enter a countdown duration.'); state.countdown = { endsAt: now() + duration, remaining: 0, alarmActive: false, occurrence: crypto.randomUUID(), dismissed: false }; chrome.runtime.sendMessage({ type: 'START_COUNTDOWN', endsAt: state.countdown.endsAt, occurrence: state.countdown.occurrence }); saveState(); });
-  $('#countdown-reset').addEventListener('click', () => { state.countdown = { endsAt: null, remaining: 0, alarmActive: false, occurrence: null, dismissed: false }; chrome.runtime.sendMessage({ type: 'RESET_COUNTDOWN' }); saveState(); updateCountdown(); });
+
+  const closeTaskModal = () => {
+    taskBeingEdited = null;
+    $('#task-form').hidden = true;
+  };
+  $('#cancel-task').addEventListener('click', () => {
+    closeTaskModal();
+    showToast('Cancelled');
+  });
+  $('#close-task').addEventListener('click', closeTaskModal);
+  $('#task-form').addEventListener('click', event => {
+    if (event.target === $('#task-form')) {
+      closeTaskModal();
+    }
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && !$('#task-form').hidden) {
+      closeTaskModal();
+    }
+  });
+  $('#delete-task').addEventListener('click', () => {
+    if (taskBeingEdited) deleteTask(taskBeingEdited);
+  });
+
+  ['startTime', 'endTime', 'startPeriod', 'endPeriod'].forEach(name => {
+    const formControl = document.querySelector(`#task-form [name="${name}"]`);
+    formControl?.addEventListener('input', () => updateTaskEditorSummary(taskBeingEdited ? new Date(taskBeingEdited.start) : new Date()));
+    formControl?.addEventListener('change', () => updateTaskEditorSummary(taskBeingEdited ? new Date(taskBeingEdited.start) : new Date()));
+  });
+
+  $('#task-form').addEventListener('submit', event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const taskDate = taskBeingEdited ? new Date(taskBeingEdited.start) : new Date();
+    const enteredStart = parseTimeOnDate(taskDate, form.elements.startTime.value, form.elements.startPeriod.value);
+    const endInput = form.elements.endTime.value.trim();
+    if (!endInput) return setStatus('Enter an end time.');
+    const end = parseTimeOnDate(taskDate, endInput, form.elements.endPeriod.value);
+    const current = new Date();
+    const startsNow = !taskBeingEdited && enteredStart && enteredStart.getHours() === current.getHours() && enteredStart.getMinutes() === current.getMinutes();
+    const start = startsNow ? current : enteredStart;
+
+    if (!start || !end) return setStatus('Enter valid start and end time values.');
+    if (!sameLocalDay(start, end)) return setStatus('Tasks must start and end on the same day.');
+    if (end <= start) return setStatus('End time must be after the start time.');
+    if (end.getTime() - start.getTime() >= 86400000) return setStatus('Tasks cannot be longer than one day.');
+    if (overlaps(start, end, taskBeingEdited?.id)) return setStatus('Tasks cannot overlap.');
+
+    const values = {
+      title: form.elements.title.value.trim(),
+      color: form.elements.color.value,
+      start: start.toISOString(),
+      end: end.toISOString()
+    };
+    if (!values.title) return setStatus('Enter a task title.');
+
+    if (taskBeingEdited) {
+      const breaks = readBreaks(form, taskDate, start, breakWindowEnd(taskBeingEdited, end));
+      if (breaks.error) return setStatus(breaks.error);
+      values.breaks = breaks.intervals;
+    } else {
+      const breaks = readBreaks(form, taskDate, start, end);
+      if (breaks.error) return setStatus(breaks.error);
+      values.breaks = breaks.intervals;
+    }
+
+    if (taskBeingEdited) {
+      Object.assign(taskBeingEdited, values);
+    } else {
+      state.tasks.push({
+        id: crypto.randomUUID(),
+        ...values,
+        status: startsNow ? 'active' : 'scheduled',
+        completedAt: null,
+        breaks: values.breaks || [],
+        pausedAt: null
+      });
+    }
+
+    saveTasks('Changes Saved!');
+    taskBeingEdited = null;
+    $('#task-break-editor').hidden = true;
+    form.reset();
+    form.hidden = true;
+    renderTasks();
+  });
+  $('#stopwatch-toggle').addEventListener('click', () => { if (state.stopwatch.startedAt) { state.stopwatch.elapsed += now() - state.stopwatch.startedAt; state.stopwatch.startedAt = null; $('#stopwatch-toggle').textContent = 'Resume'; } else { state.stopwatch.startedAt = now(); $('#stopwatch-toggle').textContent = 'Pause'; } saveStopwatch(); });
+  $('#stopwatch-reset').addEventListener('click', () => { state.stopwatch = { startedAt: null, elapsed: 0, laps: [] }; $('#stopwatch-toggle').textContent = 'Start'; saveStopwatch(); renderLaps(); updateStopwatch(); });
+  $('#lap-button').addEventListener('click', () => { const elapsed = state.stopwatch.elapsed + (state.stopwatch.startedAt ? now() - state.stopwatch.startedAt : 0); state.stopwatch.laps.push({ elapsed, description: '' }); saveStopwatch(); renderLaps(); });
+  $('#countdown-start').addEventListener('click', () => { if (state.countdown.endsAt) return; const hours = Number($('#countdown-hours').value || 0); const minutes = Number($('#countdown-minutes').value || 0); const seconds = Number($('#countdown-seconds').value || 0); const duration = (hours * 3600 + minutes * 60 + seconds) * 1000; if (duration <= 0) return setStatus('Enter a countdown duration.'); state.countdown = { endsAt: now() + duration, remaining: 0, alarmActive: false, occurrence: crypto.randomUUID(), dismissed: false }; chrome.runtime.sendMessage({ type: 'START_COUNTDOWN', endsAt: state.countdown.endsAt, occurrence: state.countdown.occurrence }); saveCountdown(); });
+  $('#countdown-reset').addEventListener('click', () => { state.countdown = { endsAt: null, remaining: 0, alarmActive: false, occurrence: null, dismissed: false }; chrome.runtime.sendMessage({ type: 'RESET_COUNTDOWN' }); saveCountdown(); updateCountdown(); });
   wireImportExport();
 }
 function wireImportExport() {
@@ -666,32 +1302,269 @@ function wireImportExport() {
 function downloadJson(name, data) { const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })); link.download = name; link.click(); URL.revokeObjectURL(link.href); }
 async function readJson(event) { const file = event.target.files[0]; event.target.value = ''; if (!file) return null; try { return JSON.parse(await file.text()); } catch { setStatus('Import failed: choose a valid JSON file.'); return null; } }
 async function importJson(event) { const imported = await readJson(event); if (!imported || typeof imported !== 'object') return; state = { ...state, ...imported, settings: { ...state.settings, ...(imported.settings || {}) } }; applyTheme(state.settings.theme); applyBackgroundImage(state.settings.backgroundImageUrl); await saveState('Backup imported'); renderAll(); }
-async function importCategory(event, category) { const imported = await readJson(event); if (!imported) return; if (category === 'settings') { state.settings = { ...state.settings, ...(imported.settings || {}) }; applyTheme(state.settings.theme); applyBackgroundImage(state.settings.backgroundImageUrl); } else if (category === 'timers') { state.stopwatch = imported.stopwatch || state.stopwatch; state.countdown = imported.countdown || state.countdown; } else if (Array.isArray(imported[category])) state[category] = imported[category]; else return setStatus(`Import failed: no ${category} data found.`); await saveState(`${category} imported`); renderAll(); }
+async function importCategory(event, category) {
+  const imported = await readJson(event);
+  if (!imported) return;
+  if (category === 'settings') {
+    state.settings = { ...state.settings, ...(imported.settings || {}) };
+    applyTheme(state.settings.theme);
+    applyBackgroundImage(state.settings.backgroundImageUrl);
+    await saveSettings('Settings imported');
+  } else if (category === 'timers') {
+    state.stopwatch = imported.stopwatch || state.stopwatch;
+    state.countdown = imported.countdown || state.countdown;
+    await saveSlices(['stopwatch', 'countdown'], 'Timers imported');
+  } else if (category === 'notes') {
+    if (Array.isArray(imported.notes)) {
+      state.notes = imported.notes;
+      activeNoteId = state.notes[0]?.id || null;
+      await saveNotes('Notes imported');
+    } else return setStatus('Import failed: no notes data found.');
+  } else if (category === 'tasks') {
+    if (Array.isArray(imported.tasks)) {
+      state.tasks = imported.tasks;
+      await saveTasks('Tasks imported');
+    } else return setStatus('Import failed: no tasks data found.');
+  } else if (Array.isArray(imported[category])) {
+    state[category] = imported[category];
+    await saveSlice(category, `${category} imported`);
+  } else {
+    return setStatus(`Import failed: no ${category} data found.`);
+  }
+  renderAll();
+}
+
+function syncTaskFormWithTask(task) {
+  const form = $('#task-form');
+  if (!form || form.hidden) return;
+  form.elements.title.value = task.title || '';
+  form.elements.color.value = task.color || '#A855F7';
+  syncTaskColorPicker();
+  setTimeFields(form, 'start', new Date(task.start));
+  setTimeFields(form, 'end', new Date(task.end));
+  renderBreakEditor(task);
+  updateTaskEditorSummary(new Date(task.start));
+  $('#task-meta').textContent = task.actualEnd
+    ? `Scheduled: ${formatDate(new Date(task.end))} · Actual end: ${formatDate(new Date(task.actualEnd))}`
+    : `Scheduled: ${formatDate(new Date(task.start))} - ${formatDate(new Date(task.end))}`;
+  const dynamicActions = $('#task-dynamic-actions');
+  dynamicActions.replaceChildren();
+  if (task.status !== 'completed') {
+    if (['active', 'extended', 'paused'].includes(task.status)) {
+      const pauseBtn = button(task.status === 'paused' ? 'Resume Task' : 'Pause Task', 'task-pause-btn');
+      pauseBtn.addEventListener('click', () => toggleTaskPause(task));
+      dynamicActions.appendChild(pauseBtn);
+    }
+    const finishBtn = button('Finish Task', 'task-finish-btn');
+    finishBtn.addEventListener('click', () => finishTask(task));
+    dynamicActions.appendChild(finishBtn);
+  }
+}
+
+function syncNotesUI() {
+  const noteList = $('#note-list');
+  const panel = $('#note-editor-panel');
+  if (!noteList || !panel) return;
+
+  const currentNote = state.notes.find(item => item.id === activeNoteId) || state.notes[0];
+  if (!currentNote) {
+    renderNotes();
+    return;
+  }
+  activeNoteId = currentNote.id;
+
+  const renderedItems = noteList.querySelectorAll('.note-list-row');
+  const countChanged = renderedItems.length !== state.notes.length;
+  let idsChanged = countChanged;
+  if (!idsChanged) {
+    const renderedButtons = noteList.querySelectorAll('.note-list-item');
+    state.notes.forEach((note, index) => {
+      if (renderedButtons[index]?.textContent !== (note.title || 'Untitled note')) {
+        idsChanged = true;
+      }
+    });
+  }
+
+  if (countChanged) {
+    renderNotes();
+    return;
+  }
+  renderNotesListOnly();
+
+  const titleInput = panel.querySelector('.note-title');
+  if (titleInput && titleInput.value !== currentNote.title) {
+    if (document.activeElement !== titleInput) {
+      titleInput.value = currentNote.title || '';
+    }
+  }
+
+  const blockList = panel.querySelector('.note-block-list');
+  if (!blockList) {
+    renderNotes();
+    return;
+  }
+
+  const renderedBlocks = [...blockList.querySelectorAll('.editor-wrapper')];
+  const blockIds = currentNote.blocks.map(b => b.id);
+  const renderedIds = renderedBlocks.map(w => w.dataset.blockId);
+
+  if (blockIds.length !== renderedIds.length || blockIds.some((id, idx) => id !== renderedIds[idx])) {
+    const focusedBlockId = document.activeElement?.closest('.editor-wrapper')?.dataset.blockId;
+    const isWysiwyg = document.activeElement?.classList.contains('wysiwyg');
+    const isBlockTitle = document.activeElement?.classList.contains('block-title');
+
+    renderNotes();
+
+    if (focusedBlockId) {
+      const restoredWrapper = blockList.querySelector(`.editor-wrapper[data-block-id="${focusedBlockId}"]`);
+      if (restoredWrapper) {
+        if (isBlockTitle) restoredWrapper.querySelector('.block-title')?.focus();
+        else if (isWysiwyg) restoredWrapper.querySelector('.wysiwyg')?.focus();
+      }
+    }
+    return;
+  }
+
+  currentNote.blocks.forEach((block, index) => {
+    const wrapper = renderedBlocks[index];
+    if (!wrapper) return;
+
+    const bTitle = wrapper.querySelector('.block-title');
+    if (bTitle && bTitle.value !== (block.title || 'Text box')) {
+      if (document.activeElement !== bTitle) {
+        bTitle.value = block.title || 'Text box';
+      }
+    }
+
+    const card = wrapper.querySelector('.editor-card');
+    const collapseBtn = wrapper.querySelector('.editor-toolbar button.icon');
+    const editor = wrapper.querySelector('.wysiwyg');
+    if (card && editor && collapseBtn) {
+      const isCollapsed = card.classList.contains('is-collapsed');
+      if (isCollapsed !== !!block.collapsed) {
+        card.classList.toggle('is-collapsed', !!block.collapsed);
+        editor.hidden = !!block.collapsed;
+        collapseBtn.textContent = block.collapsed ? 'Expand' : 'Collapse';
+      }
+    }
+
+    if (card) card.style.width = `${block.width || 100}%`;
+    if (editor) {
+      editor.style.fontFamily = block.fontFamily || 'Arial, sans-serif';
+      editor.style.fontSize = `${block.fontSize || 18}px`;
+      editor.style.minHeight = `${block.height || 180}px`;
+
+      const currentHtml = editorHtml(editor);
+      if (currentHtml !== (block.html || '')) {
+        if (document.activeElement !== editor) {
+          editor.innerHTML = block.html || '';
+          prepareEditorImages(editor, block);
+        } else {
+          const offset = getCaretCharacterOffsetWithin(editor);
+          editor.innerHTML = block.html || '';
+          prepareEditorImages(editor, block);
+          setCaretCharacterOffsetWithin(editor, offset);
+        }
+      }
+    }
+  });
+}
+
+function handleStorageChanges(changes) {
+  if (changes.todoState?.newValue) {
+    const legacy = changes.todoState.newValue;
+    for (const key of STORAGE_KEYS) {
+      if (legacy[key] !== undefined && !changes[key]) {
+        changes[key] = { newValue: legacy[key] };
+      }
+    }
+  }
+
+  if (changes.settings?.newValue) {
+    const newSettings = changes.settings.newValue;
+    const newJson = JSON.stringify(newSettings);
+    if (newJson !== lastSavedJson.settings) {
+      lastSavedJson.settings = newJson;
+      state.settings = { ...clone(DEFAULT_STATE.settings), ...newSettings };
+      applyTheme(state.settings.theme);
+      applyBackgroundImage(state.settings.backgroundImageUrl);
+    }
+  }
+
+  if (changes.calendar?.newValue) {
+    const newCalendar = changes.calendar.newValue;
+    const newJson = JSON.stringify(newCalendar);
+    if (newJson !== lastSavedJson.calendar) {
+      lastSavedJson.calendar = newJson;
+      state.calendar = { ...clone(DEFAULT_STATE.calendar), ...newCalendar };
+      renderTasks();
+    }
+  }
+
+  if (changes.stopwatch?.newValue) {
+    const newStopwatch = changes.stopwatch.newValue;
+    const newJson = JSON.stringify(newStopwatch);
+    if (newJson !== lastSavedJson.stopwatch) {
+      lastSavedJson.stopwatch = newJson;
+      state.stopwatch = newStopwatch;
+      updateStopwatch();
+      renderLaps();
+      const toggleBtn = $('#stopwatch-toggle');
+      if (toggleBtn) {
+        toggleBtn.textContent = state.stopwatch.startedAt ? 'Pause' : (state.stopwatch.elapsed ? 'Resume' : 'Start');
+      }
+    }
+  }
+
+  if (changes.countdown?.newValue) {
+    const newCountdown = changes.countdown.newValue;
+    const newJson = JSON.stringify(newCountdown);
+    if (newJson !== lastSavedJson.countdown) {
+      lastSavedJson.countdown = newJson;
+      state.countdown = newCountdown;
+      updateCountdown();
+    }
+  }
+
+  if (changes.tasks?.newValue) {
+    const newTasks = changes.tasks.newValue;
+    const newJson = JSON.stringify(newTasks);
+    if (newJson !== lastSavedJson.tasks) {
+      lastSavedJson.tasks = newJson;
+      state.tasks = Array.isArray(newTasks) ? newTasks : [];
+      if (taskBeingEdited) {
+        const updated = state.tasks.find(t => t.id === taskBeingEdited.id);
+        if (!updated) {
+          taskBeingEdited = null;
+          $('#task-form').hidden = true;
+          showToast('The task being edited was deleted in another tab.');
+        } else {
+          taskBeingEdited = updated;
+          syncTaskFormWithTask(updated);
+        }
+      }
+      renderTasks();
+    }
+  }
+
+  if (changes.notes?.newValue) {
+    const newNotes = changes.notes.newValue;
+    const newJson = JSON.stringify(newNotes);
+    if (resizingEditorImage) return;
+    if (newJson !== lastSavedJson.notes) {
+      lastSavedJson.notes = newJson;
+      state.notes = Array.isArray(newNotes) && newNotes.length ? newNotes : clone(DEFAULT_STATE.notes);
+      if (!state.notes.some(n => n.id === activeNoteId)) {
+        activeNoteId = state.notes[0]?.id || null;
+      }
+      syncNotesUI();
+    }
+  }
+}
 
 wireEvents();
 loadState();
-chrome.storage.onChanged.addListener(changes => {
-  const newValue = changes.todoState?.newValue;
-  if (!newValue) return;
-  const newJson = JSON.stringify(newValue);
-  if (newJson === lastSavedStateJson) return;
-
-  if (newValue.settings?.theme && newValue.settings.theme !== state?.settings?.theme) {
-    applyTheme(newValue.settings.theme);
-  }
-
-  if (saving || activeEditor || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable) return;
-
-  const contentChanged = !state ||
-    JSON.stringify(state.notes) !== JSON.stringify(newValue.notes) ||
-    JSON.stringify(state.tasks) !== JSON.stringify(newValue.tasks) ||
-    JSON.stringify(state.stopwatch?.laps) !== JSON.stringify(newValue.stopwatch?.laps) ||
-    state.calendar?.visibleStart !== newValue.calendar?.visibleStart ||
-    state.settings?.backgroundImageUrl !== newValue.settings?.backgroundImageUrl;
-
-  state = newValue;
-  lastSavedStateJson = newJson;
-  if (contentChanged) {
-    renderAll();
-  }
+chrome.storage.onChanged.addListener(handleStorageChanges);
+window.addEventListener('focus', () => {
+  loadState();
 });

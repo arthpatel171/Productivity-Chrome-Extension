@@ -4,6 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Offline Workspace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body class="todo-app-page">
@@ -37,16 +40,144 @@
         <div><p class="eyebrow">Plan the day</p><h2>Calendar and tasks</h2></div>
         <button id="new-task" class="primary" type="button">+ New task</button>
       </div>
-      <form id="task-form" class="task-form" hidden>
-        <div class="form-grid">
-          <label>Title<input name="title" required placeholder="Name of task"></label>
-          <label>Color<div class="task-color-picker"><input name="color" type="color" value="#2f6fae" aria-label="Custom task color"><div class="standard-colors" aria-label="Standard task colors"></div><button class="custom-color-button" type="button">Choose custom color</button></div></label>
-          <label>Description<textarea name="description" rows="2" placeholder="Optional details"></textarea></label>
-          <fieldset class="task-time-range"><legend>Task time</legend><label>Start time<div class="time-input"><input name="startTime" type="text" inputmode="numeric" placeholder="5:47" pattern="[0-9]{1,2}:[0-9]{2}" required><span class="period-options" aria-label="Start time AM or PM"><label><input type="radio" name="startPeriod" value="AM" checked>AM</label><label><input type="radio" name="startPeriod" value="PM">PM</label></span></div></label><label>End time<div class="time-input"><input name="endTime" type="text" inputmode="numeric" pattern="[0-9]{1,2}:[0-9]{2}"><span class="period-options" aria-label="End time AM or PM"><label><input type="radio" name="endPeriod" value="AM" checked>AM</label><label><input type="radio" name="endPeriod" value="PM">PM</label></span></div></label></fieldset>
+
+      <!-- Task Editor Modal Backdrop -->
+      <form id="task-form" class="task-modal-backdrop" hidden>
+        <div class="modal-container task-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="task-form-heading">
+          <!-- Modal Header -->
+          <div class="task-modal-header">
+            <div class="task-header-left">
+              <div id="task-header-color" class="task-header-badge"></div>
+              <h2 id="task-form-heading" class="task-modal-title">Edit Task</h2>
+            </div>
+            <button id="close-task" class="task-modal-close" type="button" aria-label="Close task details">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+
+          <!-- Modal Scrollable Content Body -->
+          <div class="task-modal-body custom-scroll">
+
+            <!-- SECTION 1: Task Title & Color Selection -->
+            <div class="task-modal-section">
+              <!-- Title Input -->
+              <div class="task-input-group">
+                <label for="task-title-input" class="task-field-label">Task Title</label>
+                <div class="custom-input">
+                  <input id="task-title-input" name="title" required placeholder="Enter task title..." class="custom-input-field">
+                </div>
+              </div>
+
+              <!-- Palette Color Selector -->
+              <div class="task-input-group">
+                <div class="task-color-header">
+                  <label class="task-field-label">Task Color</label>
+                  <span id="selected-task-color" class="task-color-label-text">Purple (#A855F7)</span>
+                </div>
+                <div class="task-color-palette" id="colorPalette">
+                  <div class="standard-colors" id="standard-colors"></div>
+                  <div class="custom-color-wrapper">
+                    <label for="task-custom-color" class="custom-color-label" id="custom-color-label" title="Choose custom color">
+                      <div class="custom-color-preview" id="custom-color-preview"></div>
+                      <span>Custom color</span>
+                      <input type="color" id="task-custom-color" name="color" value="#A855F7" class="sr-only" aria-label="Custom task color">
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- SECTION 2: Task Time & Schedule Summary -->
+            <div class="task-schedule-card">
+              <div class="task-schedule-card-header">
+                <div class="task-schedule-card-title">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                  <span>Task Schedule</span>
+                </div>
+                
+                <!-- Schedule Summary Pill -->
+                <div class="schedule-summary-pill">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                  <span id="schedule-summary-text">Today</span>
+                  <span class="pill-dot">•</span>
+                  <strong id="schedule-duration" class="pill-duration">--</strong>
+                </div>
+              </div>
+
+              <div id="task-meta" class="task-meta-sub" aria-live="polite"></div>
+
+              <!-- Integrated Time Pickers -->
+              <div class="task-time-pickers-grid">
+                <!-- Start Time Group -->
+                <div class="task-time-field">
+                  <span class="task-time-label">Start Time</span>
+                  <div class="custom-input time-picker-box">
+                    <input name="startTime" id="startTimeInput" type="text" inputmode="numeric" placeholder="h:mm" pattern="[0-9]{1,2}:[0-9]{2}" required class="time-value-input">
+                    <div class="ampm-toggle-switch">
+                      <button type="button" id="start-am-btn" class="ampm-btn">AM</button>
+                      <button type="button" id="start-pm-btn" class="ampm-btn is-active">PM</button>
+                    </div>
+                    <input type="hidden" name="startPeriod" value="PM">
+                  </div>
+                </div>
+
+                <!-- End Time Group -->
+                <div class="task-time-field">
+                  <span class="task-time-label">End Time</span>
+                  <div class="custom-input time-picker-box">
+                    <input name="endTime" id="endTimeInput" type="text" inputmode="numeric" placeholder="" pattern="[0-9]{1,2}:[0-9]{2}" class="time-value-input">
+                    <div class="ampm-toggle-switch">
+                      <button type="button" id="end-am-btn" class="ampm-btn">AM</button>
+                      <button type="button" id="end-pm-btn" class="ampm-btn is-active">PM</button>
+                    </div>
+                    <input type="hidden" name="endPeriod" value="PM">
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- SECTION 3: Dynamic Breaks Section -->
+            <div id="task-break-editor" class="task-breaks-section">
+              <div class="task-breaks-header">
+                <div class="task-breaks-heading-left">
+                  <span class="task-field-label">Scheduled Breaks</span>
+                  <span id="task-break-count" class="break-count-badge">0 breaks</span>
+                </div>
+                <button type="button" id="add-task-break" class="add-break-btn">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  <span>Add Break</span>
+                </button>
+              </div>
+
+              <!-- Break Rows Stack -->
+              <div id="task-break-list" class="task-breaks-list"></div>
+            </div>
+
+          </div>
+
+          <!-- Modal Action Footer -->
+          <div class="task-modal-footer">
+            <!-- Left: Destructive Action -->
+            <button type="button" id="delete-task" class="task-delete-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+              <span>Delete Task</span>
+            </button>
+
+            <!-- Right: Secondary & Primary Actions -->
+            <div class="task-form-actions">
+              <button type="button" id="cancel-task" class="task-cancel-btn">Cancel</button>
+              <div id="task-dynamic-actions" class="task-dynamic-actions"></div>
+              <button type="submit" class="task-save-btn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>Save Task</span>
+              </button>
+            </div>
+          </div>
+
         </div>
-        <p id="task-meta" class="task-meta" aria-live="polite"></p>
-        <div class="form-actions"><button type="submit" class="primary">Save task</button><button id="cancel-task" type="button">Cancel</button></div>
       </form>
+
       <div id="day-calendar" class="day-calendar" aria-label="Today's calendar"></div>
       <section id="task-color-chart" class="task-color-chart" aria-label="Task time by color"></section>
     </section>
@@ -70,6 +201,12 @@
     </section>
 
     <p id="app-status" class="status" role="status"></p>
+
+    <!-- Dynamic Toast Feedback -->
+    <div id="toast" class="toast-feedback" aria-live="polite">
+      <div id="toastDot" class="toast-dot"></div>
+      <span id="toastMsg">Action executed</span>
+    </div>
   </main>
   <script src="app.js?v=2.0.4"></script>
 </body>

@@ -1,14 +1,32 @@
-const DEFAULT_SETTINGS = { silentNotifications: false };
+const DEFAULT_SETTINGS = { silentNotifications: false, theme: 'dark' };
 let state;
 let lastSavedStateJson = '';
 let statusInterval;
 const $ = selector => document.querySelector(selector);
+function taskStatus(task) { return String(task?.status || '').toLowerCase().replaceAll('_', '-'); }
+function isActiveTask(task) { return ['active', 'extended', 'paused', 'running', 'in-progress'].includes(taskStatus(task)); }
+function applyPopupTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : 'dark');
+}
+function normalizeState(value) {
+  const next = value || { settings: DEFAULT_SETTINGS, tasks: [], countdown: { endsAt: null } };
+  const storedSettings = next.settings || {};
+  next.settings = { ...DEFAULT_SETTINGS, ...storedSettings, silentNotifications: storedSettings.silentNotifications ?? storedSettings.enabled === false };
+  return next;
+}
 
 async function load() {
-  const result = await chrome.storage.local.get('todoState');
-  state = result.todoState || { settings: DEFAULT_SETTINGS, tasks: [], countdown: { endsAt: null } };
-  const storedSettings = state.settings || {};
-  state.settings = { ...DEFAULT_SETTINGS, ...storedSettings, silentNotifications: storedSettings.silentNotifications ?? storedSettings.enabled === false };
+  const result = await chrome.storage.local.get(['tasks', 'settings', 'countdown', 'todoState']);
+  let tasks = result.tasks;
+  let settings = result.settings;
+  let countdown = result.countdown;
+  if (!tasks && result.todoState) {
+    tasks = result.todoState.tasks;
+    settings = result.todoState.settings;
+    countdown = result.todoState.countdown;
+  }
+  state = normalizeState({ tasks, settings, countdown });
+  applyPopupTheme(state.settings.theme);
   lastSavedStateJson = JSON.stringify(state);
   $('#silent-notifications').checked = state.settings.silentNotifications;
   renderStatus();
@@ -17,24 +35,29 @@ async function load() {
 }
 async function save() {
   lastSavedStateJson = JSON.stringify(state);
-  await chrome.storage.local.set({ todoState: state });
+  await chrome.storage.local.set({ settings: state.settings, tasks: state.tasks, countdown: state.countdown });
   $('#popup-status').textContent = 'Saved';
   renderStatus();
 }
-$('#silent-notifications').addEventListener('change', async event => { state.settings.silentNotifications = event.target.checked; await save(); });
+$('#silent-notifications').addEventListener('change', async event => {
+  state.settings.silentNotifications = event.target.checked;
+  lastSavedStateJson = JSON.stringify(state);
+  await chrome.storage.local.set({ settings: state.settings });
+  $('#popup-status').textContent = 'Saved';
+});
 $('#task-toggle').addEventListener('click', async () => {
-  const task = (state.tasks || []).find(item => item.status === 'active' || item.status === 'extended' || item.status === 'paused');
+  const task = (state.tasks || []).find(isActiveTask);
   if (!task) return;
-  await chrome.runtime.sendMessage({ type: 'TASK_ACTION', taskId: task.id, action: task.status === 'paused' ? 'resume' : 'pause' });
+  await chrome.runtime.sendMessage({ type: 'TASK_ACTION', taskId: task.id, action: taskStatus(task) === 'paused' ? 'resume' : 'pause' });
   await load();
 });
 $('#open-app').addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL('app.html') }));
 function renderStatus() {
   const panel = $('#popup-status-panel'); panel.replaceChildren();
   const toggle = $('#task-toggle');
-  const currentTask = (state.tasks || []).find(task => task.status === 'active' || task.status === 'extended' || task.status === 'paused');
+  const currentTask = (state.tasks || []).find(isActiveTask);
   if (currentTask) {
-    const paused = currentTask.status === 'paused';
+    const paused = taskStatus(currentTask) === 'paused';
     toggle.disabled = false;
     toggle.textContent = paused ? 'Resume' : 'Take a Break';
     toggle.classList.toggle('resumed', paused);
@@ -52,7 +75,7 @@ function renderStatus() {
   (state.tasks || []).filter(task => task.status !== 'completed').forEach(task => {
     const item = document.createElement('div'); const color = /^#[0-9a-f]{6}$/i.test(task.color || '') ? task.color : '#2f6fae'; item.style.backgroundColor = color; item.style.borderColor = color; item.className = 'popup-task';
     item.innerHTML = `<strong>${escapeHtml(task.title)}</strong><br>Start Time: ${formatDate(task.start)}<br><span class="${task.delayed ? 'late' : ''}">${task.status === 'paused' ? 'Task is paused.' : task.delayed ? 'Scheduled start time has passed.' : `Scheduled End Time: ${formatDate(task.end)}`}</span>`;
-    if (task.status === 'active' || task.status === 'extended' || task.status === 'paused' || task.delayed) {
+    if (isActiveTask(task) || task.delayed) {
       const action = document.createElement('button'); action.type = 'button'; action.className = 'primary'; action.textContent = task.delayed ? 'Start' : 'Finish task'; action.addEventListener('click', async () => { await chrome.runtime.sendMessage({ type: 'TASK_ACTION', taskId: task.id, action: task.delayed ? 'start' : 'finish' }); await load(); }); item.appendChild(action);
     }
     panel.appendChild(item);
@@ -62,10 +85,9 @@ function formatDuration(value) { const seconds = Math.floor(value / 1000); retur
 function formatDate(value) { return new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
 function escapeHtml(value) { const element = document.createElement('span'); element.textContent = value || ''; return element.innerHTML; }
 chrome.storage.onChanged.addListener(changes => {
-  const newValue = changes.todoState?.newValue;
-  if (!newValue) return;
-  if (JSON.stringify(newValue) === lastSavedStateJson) return;
-  state = newValue;
-  renderStatus();
+  if (changes.tasks || changes.settings || changes.countdown || changes.todoState) {
+    load();
+  }
 });
+window.addEventListener('focus', load);
 load();

@@ -1,302 +1,389 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Activity Breakdown Widget</title>
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Google Fonts: Inter & JetBrains Mono -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-  <!-- Chart.js CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Text and Image Editor</title>
 
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['Inter', 'sans-serif'],
-            mono: ['JetBrains Mono', 'monospace'],
-          },
-          colors: {
-            brand: {
-              orange: '#FF6B1A',
-              green: '#10B981',
-              purple: '#8B5CF6',
-              pattern: '#1F2937'
-            }
-          }
-        }
-      }
-    }
-  </script>
+<style>
+* {
+    box-sizing: border-box;
+}
 
-  <style>
-    body {
-      background-color: #0A0D14;
-      color: #F3F4F6;
-      font-family: 'Inter', sans-serif;
-    }
+body {
+    margin: 0;
+    padding: 35px;
+    background: #f3f4f6;
+    font-family: Arial, sans-serif;
+}
 
-    /* Custom Glassmorphism container */
-    .glass-card {
-      background: rgba(18, 24, 38, 0.75);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-    }
+h2 {
+    margin-bottom: 15px;
+    color: #222;
+}
 
-    /* Glowing accent under hover */
-    .legend-item {
-      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    }
+.editor {
+    width: 100%;
+    min-height: 500px;
+    padding: 20px;
+    background: black;
+    color: white;
+    border: 2px solid #444;
+    border-radius: 10px;
+    outline: none;
+    font-size: 16px;
+    line-height: 1.6;
+    overflow-wrap: break-word;
+}
 
-    .legend-item:hover {
-      background: rgba(255, 255, 255, 0.05);
-      transform: translateX(4px);
-    }
+.editor:focus {
+    border-color: #4285f4;
+}
 
-    /* Stripe Pattern overlay for SVG canvas background pattern fallback */
-    .stripe-pattern-bg {
-      background: repeating-linear-gradient(
-        -45deg,
-        rgba(255, 255, 255, 0.15),
-        rgba(255, 255, 255, 0.15) 4px,
-        transparent 4px,
-        transparent 10px
-      );
-    }
-  </style>
+.editor:empty::before {
+    content: "Start typing or paste an image here...";
+    color: #888;
+    pointer-events: none;
+}
+
+/* Image wrapper */
+.image-wrapper {
+    display: inline-block;
+    position: relative;
+    width: 300px;
+    height: 200px;
+    max-width: 100%;
+    margin: 8px;
+    vertical-align: middle;
+    user-select: none;
+}
+
+/* Image */
+.image-wrapper img {
+    width: 100%;
+    height: 100%;
+    object-fit: fill;
+    display: block;
+    pointer-events: none;
+}
+
+/* Selection outline */
+.image-wrapper.selected {
+    outline: 1px solid #1683ff;
+}
+
+/* Resize handles */
+.handle {
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    background: white;
+    border: 1px solid #1683ff;
+    border-radius: 1px;
+    display: none;
+    z-index: 10;
+}
+
+.selected .handle {
+    display: block;
+}
+
+/* Corner handles */
+.handle.nw {
+    top: -5px;
+    left: -5px;
+    cursor: nwse-resize;
+}
+
+.handle.ne {
+    top: -5px;
+    right: -5px;
+    cursor: nesw-resize;
+}
+
+.handle.sw {
+    bottom: -5px;
+    left: -5px;
+    cursor: nesw-resize;
+}
+
+.handle.se {
+    bottom: -5px;
+    right: -5px;
+    cursor: nwse-resize;
+}
+
+/* Side handles */
+.handle.n {
+    top: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    cursor: ns-resize;
+}
+
+.handle.s {
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    cursor: ns-resize;
+}
+
+.handle.w {
+    left: -5px;
+    top: 50%;
+    transform: translateY(-50%);
+    cursor: ew-resize;
+}
+
+.handle.e {
+    right: -5px;
+    top: 50%;
+    transform: translateY(-50%);
+    cursor: ew-resize;
+}
+
+.instructions {
+    color: #777;
+    font-size: 13px;
+}
+</style>
 </head>
-<body class="min-h-screen flex items-center justify-center p-4 sm:p-6 md:p-8">
 
-  <!-- SVG Patterns definitions for Chart.js -->
-  <svg class="hidden" width="0" height="0">
-    <defs>
-      <!-- Stripe Pattern for 'Breaks' slice -->
-      <pattern id="stripePattern" width="12" height="12" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
-        <line x1="0" y1="0" x2="0" y2="12" stroke="#374151" stroke-width="6" />
-        <line x1="6" y1="0" x2="6" y2="12" stroke="#111827" stroke-width="6" />
-      </pattern>
-    </defs>
-  </svg>
+<body>
 
-  <!-- Main Executive Dashboard Widget Container -->
-  <div class="w-full max-w-md glass-card rounded-3xl p-6 sm:p-8 relative overflow-hidden">
-    
-    <!-- Ambient Background Glows -->
-    <div class="absolute -top-24 -left-24 w-48 h-48 bg-orange-500/10 rounded-full blur-3xl pointer-events-none"></div>
-    <div class="absolute -bottom-24 -right-24 w-48 h-48 bg-purple-500/10 rounded-full blur-3xl pointer-events-none"></div>
+<h2>Text and Image Editor</h2>
 
-    <!-- Header Section -->
-    <div class="flex items-center justify-between mb-6">
-      <div>
-        <h2 class="text-xl font-bold tracking-tight text-white/95">Activity Breakdown</h2>
-        <p class="text-xs text-gray-400 mt-0.5">Today's Total: <span class="text-gray-200 font-mono font-semibold">1h 14m</span></p>
-      </div>
-      <div class="px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] font-medium text-gray-400 flex items-center gap-1.5">
-        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-        Live Sync
-      </div>
-    </div>
+<div
+    class="editor"
+    id="editor"
+    contenteditable="true"
+    spellcheck="true"
+></div>
 
-    <!-- Donut Chart Container with Center Info -->
-    <div class="relative w-64 h-64 mx-auto my-4 flex items-center justify-center">
-      <!-- Chart Canvas -->
-      <canvas id="activityChart" class="z-10 relative cursor-pointer"></canvas>
+<p class="instructions">
+    Type normally. Paste images with Ctrl + V.
+    Select an image to show its resizing handles.
+    Press Backspace or Delete to remove a selected image.
+</p>
 
-      <!-- Donut Center Content (Static / Dynamic update on hover) -->
-      <div id="chartCenter" class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none transition-all duration-300 z-0">
-        <span id="centerVal" class="text-3xl font-extrabold font-mono tracking-tight text-white">1h 14m</span>
-        <span id="centerLabel" class="text-xs font-medium uppercase tracking-wider text-gray-400 mt-0.5">Total Tracked</span>
-      </div>
-    </div>
+<script>
 
-    <!-- Interactive Custom Legend List -->
-    <div class="mt-8 space-y-2.5" id="legendList">
-      <!-- Legend Item 1: test -->
-      <div data-index="0" class="legend-item flex items-center justify-between p-3 rounded-xl border border-white/5 bg-white/[0.02] cursor-pointer group">
-        <div class="flex items-center gap-3">
-          <div class="w-3.5 h-3.5 rounded-full bg-[#FF6B1A] shadow-[0_0_10px_rgba(255,107,26,0.5)] group-hover:scale-110 transition-transform"></div>
-          <div>
-            <span class="text-sm font-semibold text-gray-200 group-hover:text-white transition-colors">test</span>
-            <span class="text-xs text-gray-500 block sm:inline sm:ml-2 font-mono">55.4%</span>
-          </div>
-        </div>
-        <div class="text-right">
-          <span class="text-sm font-mono font-bold text-gray-200 group-hover:text-orange-400 transition-colors">41m</span>
-        </div>
-      </div>
+const editor = document.getElementById("editor");
 
-      <!-- Legend Item 2: Breaks -->
-      <div data-index="1" class="legend-item flex items-center justify-between p-3 rounded-xl border border-white/5 bg-white/[0.02] cursor-pointer group">
-        <div class="flex items-center gap-3">
-          <div class="w-3.5 h-3.5 rounded-full stripe-pattern-bg border border-gray-600 shadow-[0_0_8px_rgba(75,85,99,0.3)] group-hover:scale-110 transition-transform"></div>
-          <div>
-            <span class="text-sm font-semibold text-gray-200 group-hover:text-white transition-colors">Breaks</span>
-            <span class="text-xs text-gray-500 block sm:inline sm:ml-2 font-mono">24.3%</span>
-          </div>
-        </div>
-        <div class="text-right">
-          <span class="text-sm font-mono font-bold text-gray-200 group-hover:text-gray-400 transition-colors">18m</span>
-        </div>
-      </div>
+let selectedImage = null;
+let resizing = false;
+let resizeData = null;
 
-      <!-- Legend Item 3: test 2 -->
-      <div data-index="2" class="legend-item flex items-center justify-between p-3 rounded-xl border border-white/5 bg-white/[0.02] cursor-pointer group">
-        <div class="flex items-center gap-3">
-          <div class="w-3.5 h-3.5 rounded-full bg-[#10B981] shadow-[0_0_10px_rgba(16,185,129,0.5)] group-hover:scale-110 transition-transform"></div>
-          <div>
-            <span class="text-sm font-semibold text-gray-200 group-hover:text-white transition-colors">test 2</span>
-            <span class="text-xs text-gray-500 block sm:inline sm:ml-2 font-mono">13.5%</span>
-          </div>
-        </div>
-        <div class="text-right">
-          <span class="text-sm font-mono font-bold text-gray-200 group-hover:text-emerald-400 transition-colors">10m</span>
-        </div>
-      </div>
+// Create eight resize handles
+function createHandles(wrapper) {
 
-      <!-- Legend Item 4: abc -->
-      <div data-index="3" class="legend-item flex items-center justify-between p-3 rounded-xl border border-white/5 bg-white/[0.02] cursor-pointer group">
-        <div class="flex items-center gap-3">
-          <div class="w-3.5 h-3.5 rounded-full bg-[#8B5CF6] shadow-[0_0_10px_rgba(139,92,246,0.5)] group-hover:scale-110 transition-transform"></div>
-          <div>
-            <span class="text-sm font-semibold text-gray-200 group-hover:text-white transition-colors">abc</span>
-            <span class="text-xs text-gray-500 block sm:inline sm:ml-2 font-mono">6.8%</span>
-          </div>
-        </div>
-        <div class="text-right">
-          <span class="text-sm font-mono font-bold text-gray-200 group-hover:text-purple-400 transition-colors">5m</span>
-        </div>
-      </div>
-    </div>
+    const positions = [
+        "nw", "n", "ne",
+        "w", "e",
+        "sw", "s", "se"
+    ];
 
-  </div>
+    positions.forEach(position => {
 
-  <script>
-    window.addEventListener('DOMContentLoaded', () => {
-      const ctx = document.getElementById('activityChart').getContext('2d');
-      const centerVal = document.getElementById('centerVal');
-      const centerLabel = document.getElementById('centerLabel');
+        const handle = document.createElement("div");
 
-      // Create Stripe Pattern for Chart Canvas
-      const patternCanvas = document.createElement('canvas');
-      const patternCtx = patternCanvas.getContext('2d');
-      patternCanvas.width = 16;
-      patternCanvas.height = 16;
+        handle.className = "handle " + position;
 
-      // Dark background for stripe segment
-      patternCtx.fillStyle = '#1F2937';
-      patternCtx.fillRect(0, 0, 16, 16);
-
-      // Light diagonal stripe lines
-      patternCtx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-      patternCtx.lineWidth = 4;
-      patternCtx.beginPath();
-      patternCtx.moveTo(-4, 20);
-      patternCtx.lineTo(20, -4);
-      patternCtx.stroke();
-
-      patternCtx.beginPath();
-      patternCtx.moveTo(-4, 4);
-      patternCtx.lineTo(4, -4);
-      patternCtx.stroke();
-
-      const stripePattern = ctx.createPattern(patternCanvas, 'repeat');
-
-      // Activity Raw Data
-      const activityData = [
-        { label: 'test', duration: '41m', minutes: 41, percent: '55.4%', color: '#FF6B1A' },
-        { label: 'Breaks', duration: '18m', minutes: 18, percent: '24.3%', color: stripePattern, hoverColor: '#374151' },
-        { label: 'test 2', duration: '10m', minutes: 10, percent: '13.5%', color: '#10B981' },
-        { label: 'abc', duration: '5m', minutes: 5, percent: '6.8%', color: '#8B5CF6' }
-      ];
-
-      // Initialize Chart.js Donut Chart
-      const chart = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-          labels: activityData.map(d => d.label),
-          datasets: [{
-            data: activityData.map(d => d.minutes),
-            backgroundColor: [
-              '#FF6B1A',
-              stripePattern,
-              '#10B981',
-              '#8B5CF6'
-            ],
-            borderColor: '#0A0D14',
-            borderWidth: 4,
-            hoverBorderWidth: 4,
-            hoverOffset: 8,
-            borderRadius: 6
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          cutout: '76%',
-          plugins: {
-            legend: {
-              display: false // Using custom interactive legend below
-            },
-            tooltip: {
-              enabled: false // Custom text updates in center on hover
-            }
-          },
-          animation: {
-            animateScale: true,
-            animateRotate: true,
-            duration: 1200,
-            easing: 'easeOutQuart'
-          },
-          onHover: (event, activeElements) => {
-            if (activeElements.length > 0) {
-              const idx = activeElements[0].index;
-              const item = activityData[idx];
-              centerVal.textContent = item.duration;
-              centerLabel.textContent = `${item.label} (${item.percent})`;
-              centerVal.style.color = idx === 1 ? '#9CA3AF' : (item.color instanceof CanvasPattern ? '#FFFFFF' : item.color);
-            } else {
-              centerVal.textContent = '1h 14m';
-              centerLabel.textContent = 'Total Tracked';
-              centerVal.style.color = '#FFFFFF';
-            }
-          }
-        }
-      });
-
-      // Synchronize hover state between custom legend items and donut chart slices
-      const legendItems = document.querySelectorAll('.legend-item');
-      legendItems.forEach((item) => {
-        const index = parseInt(item.getAttribute('data-index'), 10);
-
-        item.addEventListener('mouseenter', () => {
-          chart.setActiveElements([{ datasetIndex: 0, index: index }]);
-          chart.tooltip.setActiveElements([{ datasetIndex: 0, index: index }], { x: 0, y: 0 });
-          chart.update();
-
-          const data = activityData[index];
-          centerVal.textContent = data.duration;
-          centerLabel.textContent = `${data.label} (${data.percent})`;
-          centerVal.style.color = index === 1 ? '#9CA3AF' : (data.color instanceof CanvasPattern ? '#FFFFFF' : data.color);
+        handle.addEventListener("pointerdown", function(event) {
+            startResize(event, wrapper, position);
         });
 
-        item.addEventListener('mouseleave', () => {
-          chart.setActiveElements([]);
-          chart.tooltip.setActiveElements([]);
-          chart.update();
-
-          centerVal.textContent = '1h 14m';
-          centerLabel.textContent = 'Total Tracked';
-          centerVal.style.color = '#FFFFFF';
-        });
-      });
+        wrapper.appendChild(handle);
     });
-  </script>
+}
+
+// Select image
+function selectImage(wrapper) {
+
+    if (selectedImage) {
+        selectedImage.classList.remove("selected");
+    }
+
+    selectedImage = wrapper;
+    wrapper.classList.add("selected");
+}
+
+// Deselect image
+function deselectImage() {
+
+    if (selectedImage) {
+        selectedImage.classList.remove("selected");
+        selectedImage = null;
+    }
+}
+
+// Handle pasted images
+editor.addEventListener("paste", function(event) {
+
+    const items = event.clipboardData.items;
+    const images = [];
+
+    for (const item of items) {
+
+        if (item.type.startsWith("image/")) {
+            images.push(item.getAsFile());
+        }
+    }
+
+    // Allow normal text pasting
+    if (images.length === 0) return;
+
+    event.preventDefault();
+
+    images.forEach(file => {
+        insertImage(URL.createObjectURL(file));
+    });
+});
+
+// Insert image at cursor
+function insertImage(imageURL) {
+
+    const selection = window.getSelection();
+
+    if (!selection.rangeCount) return;
+
+    const range = selection.getRangeAt(0);
+
+    if (!editor.contains(range.commonAncestorContainer)) return;
+
+    range.deleteContents();
+
+    const wrapper = document.createElement("span");
+
+    wrapper.className = "image-wrapper";
+    wrapper.contentEditable = "false";
+
+    const img = document.createElement("img");
+    img.src = imageURL;
+
+    wrapper.appendChild(img);
+
+    createHandles(wrapper);
+
+    range.insertNode(wrapper);
+
+    // Add space after image
+    const space = document.createTextNode("\u00A0");
+
+    wrapper.after(space);
+
+    // Move cursor after image
+    const newRange = document.createRange();
+
+    newRange.setStartAfter(space);
+    newRange.collapse(true);
+
+    selection.removeAllRanges();
+    selection.addRange(newRange);
+
+    editor.focus();
+}
+
+// Select image when clicked
+editor.addEventListener("click", function(event) {
+
+    const wrapper = event.target.closest(".image-wrapper");
+
+    if (wrapper && editor.contains(wrapper)) {
+        selectImage(wrapper);
+    } else {
+        deselectImage();
+    }
+});
+
+// Start resizing
+function startResize(event, wrapper, position) {
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    selectImage(wrapper);
+
+    resizing = true;
+
+    const rect = wrapper.getBoundingClientRect();
+
+    resizeData = {
+        startX: event.clientX,
+        startY: event.clientY,
+        width: rect.width,
+        height: rect.height,
+        position: position
+    };
+
+    document.addEventListener("pointermove", resizeImage);
+    document.addEventListener("pointerup", stopResize);
+}
+
+// Resize image without locking aspect ratio
+function resizeImage(event) {
+
+    if (!resizing || !selectedImage) return;
+
+    const data = resizeData;
+
+    const dx = event.clientX - data.startX;
+    const dy = event.clientY - data.startY;
+
+    let width = data.width;
+    let height = data.height;
+
+    const position = data.position;
+
+    if (position.includes("e")) width += dx;
+    if (position.includes("w")) width -= dx;
+
+    if (position.includes("s")) height += dy;
+    if (position.includes("n")) height -= dy;
+
+    width = Math.max(50, width);
+    height = Math.max(50, height);
+
+    selectedImage.style.width = width + "px";
+    selectedImage.style.height = height + "px";
+}
+
+// Stop resizing
+function stopResize() {
+
+    resizing = false;
+    resizeData = null;
+
+    document.removeEventListener("pointermove", resizeImage);
+    document.removeEventListener("pointerup", stopResize);
+}
+
+// Click outside editor to deselect
+document.addEventListener("click", function(event) {
+
+    if (!editor.contains(event.target)) {
+        deselectImage();
+    }
+});
+
+// Delete selected image using Backspace or Delete
+document.addEventListener("keydown", function(event) {
+
+    if (
+        selectedImage &&
+        (event.key === "Backspace" || event.key === "Delete")
+    ) {
+
+        event.preventDefault();
+
+        selectedImage.remove();
+        selectedImage = null;
+    }
+
+});
+
+</script>
+
 </body>
 </html>

@@ -39,6 +39,19 @@ No other Time tools condition can trigger a popup.
   the task to continue growing while later tasks are pushed back.
 - Extending a task does not create recurring popups at a fixed interval.
 
+## Scheduled task breaks
+
+- When a scheduled break start time arrives for an active task, a system notification appears.
+- The break start notification displays the text **It's time to take a break**.
+- The break start notification provides **Begin** and **Cancel** buttons.
+  - **Begin** starts the break as scheduled (pausing the task).
+  - **Cancel** does not start the break and removes that break from the task schedule.
+- When a scheduled break end time arrives, a system notification appears displaying **Time to resume [Task Name]**.
+- The break end notification only appears if the task is active (in active, extended, or paused status, and not completed or delayed).
+- The break end notification provides **Resume** and **Snooze** buttons.
+  - **Resume** resumes the task as scheduled (returning it to active work).
+  - **Snooze** continues the break. Every 5 minutes, the user receives the same notification again until the user clicks resume.
+
 ## Browser action popup status
 
 When the user opens the extension's browser action popup:
